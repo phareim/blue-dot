@@ -1,0 +1,33 @@
+:root {
+  background-color: #000000;
+}
+
+.container {
+  width: 100vw;
+  height: 100vh;
+  background-color: #000000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden; /* Prevent scrolling when dragging to edges */
+  touch-action: none; /* Prevent default touch actions */
+}
+
+.blueDot {
+  width: 120px;
+  height: 120px;
+  background-color: #0066ff;
+  border-radius: 50%;
+  box-shadow: 0 0 20px rgba(0, 102, 255, 0.6);
+  position: relative; /* Allow for positioning */
+  transition: box-shadow 0.2s ease; /* Smooth transition for shadow only */
+  /* No transition on transform to make dragging feel responsive */
+  cursor: grab;
+  user-select: none; /* Prevent selection while dragging */
+  touch-action: none; /* Disable browser handling of all panning and zooming gestures */
+}
+
+.blueDot:active {
+  box-shadow: 0 0 30px rgba(0, 102, 255, 0.8);
+  cursor: grabbing;
+}
