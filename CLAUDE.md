@@ -1,14 +1,16 @@
 # Blue Dot
 
-React Lynx app with a draggable blue dot interface using touch events.
+React web app with a draggable blue dot (Pointer Events, works for mouse + touch + pen).
 
 ## Tech Stack
 
-- TypeScript, React (via @lynx-js/react)
-- Rspeedy build tool
-- pnpm package manager
+- TypeScript, React 18
+- Vite
+- pnpm
 
 ## Commands
 
 - `pnpm install` — install dependencies
-- `pnpm run dev` — dev server (scan QR with LynxExplorer App)
+- `pnpm run dev` — start Vite dev server
+- `pnpm run build` — type-check + production build
+- `pnpm run typecheck` — type-check only

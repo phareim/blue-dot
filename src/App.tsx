@@ -1,65 +1,37 @@
-import { useEffect, useState, useCallback } from '@lynx-js/react'
+import { useRef, useState, type PointerEvent } from 'react'
 import './App.css'
 
-// Define touch event types
-interface TouchEvent {
-  touches: Array<{
-    clientX: number;
-    clientY: number;
-  }>;
-}
-
 export function App() {
-  const [position, setPosition] = useState({ x: 0, y: 0 })
-  const [isDragging, setIsDragging] = useState(false)
-  const [startPos, setStartPos] = useState({ x: 0, y: 0 })
-  const [startTouch, setStartTouch] = useState({ x: 0, y: 0 })
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+  const [dragging, setDragging] = useState(false)
+  const origin = useRef({ x: 0, y: 0 })
 
-  useEffect(() => {
-    console.info('Blue Dot App loaded')
-  }, [])
+  const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId)
+    origin.current = { x: e.clientX - pos.x, y: e.clientY - pos.y }
+    setDragging(true)
+  }
 
-  const handleTouchStart = useCallback((e: TouchEvent) => {
-    // Get the touch coordinates
-    const touch = e.touches[0]
-    setIsDragging(true)
-    setStartTouch({ x: touch.clientX, y: touch.clientY })
-    setStartPos({ ...position })
-  }, [position])
+  const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
+    if (!dragging) return
+    setPos({ x: e.clientX - origin.current.x, y: e.clientY - origin.current.y })
+  }
 
-  const handleTouchMove = useCallback((e: TouchEvent) => {
-    if (!isDragging) return
-    
-    // Calculate new position based on touch movement
-    const touch = e.touches[0]
-    const deltaX = touch.clientX - startTouch.x
-    const deltaY = touch.clientY - startTouch.y
-    
-    // Update position
-    setPosition({
-      x: startPos.x + deltaX,
-      y: startPos.y + deltaY
-    })
-  }, [isDragging, startTouch, startPos])
-
-  const handleTouchEnd = useCallback(() => {
-    setIsDragging(false)
-  }, [])
-
-  // Create the transform style based on the current position
-  const dotStyle = {
-    transform: `translate(${position.x}px, ${position.y}px)`
+  const onPointerUp = (e: PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.releasePointerCapture(e.pointerId)
+    setDragging(false)
   }
 
   return (
-    <view className="container">
-      <view 
-        className="blueDot" 
-        style={dotStyle}
-        bindtouchstart={handleTouchStart}
-        bindtouchmove={handleTouchMove}
-        bindtouchend={handleTouchEnd}
+    <div className="container">
+      <div
+        className={`dot${dragging ? ' dot--dragging' : ''}`}
+        style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
       />
-    </view>
+    </div>
   )
 }
