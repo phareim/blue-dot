@@ -25,6 +25,10 @@
   transition: box-shadow 120ms ease;
 }
 
+.dot--summoning {
+  transition: box-shadow 120ms ease, transform 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 .hint {
   position: fixed;
   left: 50%;
