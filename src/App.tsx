@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react'
+import { ParallaxBackground } from './ParallaxBackground'
 import './App.css'
 
 const STEP = 20
@@ -76,6 +77,7 @@ export function App() {
 
   return (
     <div className="container" onClick={onContainerClick}>
+      <ParallaxBackground x={pos.x} y={pos.y} />
       <div
         className={`dot${dragging ? ' dot--dragging' : ''}${summoning ? ' dot--summoning' : ''}`}
         style={{ transform: `translate(${pos.x}px, ${pos.y}px)` }}
