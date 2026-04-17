@@ -1,5 +1,8 @@
-import { useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import './App.css'
+
+const STEP = 20
+const BIG_STEP = 100
 
 export function App() {
   const [pos, setPos] = useState({ x: 0, y: 0 })
@@ -22,6 +25,37 @@ export function App() {
     setDragging(false)
   }
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const step = e.shiftKey ? BIG_STEP : STEP
+      switch (e.key) {
+        case 'ArrowUp':
+          setPos((p) => ({ ...p, y: p.y - step }))
+          break
+        case 'ArrowDown':
+          setPos((p) => ({ ...p, y: p.y + step }))
+          break
+        case 'ArrowLeft':
+          setPos((p) => ({ ...p, x: p.x - step }))
+          break
+        case 'ArrowRight':
+          setPos((p) => ({ ...p, x: p.x + step }))
+          break
+        case 'r':
+        case 'R':
+        case 'Home':
+          setPos({ x: 0, y: 0 })
+          break
+        default:
+          return
+      }
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
+
   return (
     <div className="container">
       <div
@@ -32,6 +66,13 @@ export function App() {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       />
+      <div className="hint" aria-hidden="true">
+        <kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd> move
+        <span className="hint__sep">·</span>
+        <kbd>Shift</kbd> big step
+        <span className="hint__sep">·</span>
+        <kbd>R</kbd> reset
+      </div>
     </div>
   )
 }
