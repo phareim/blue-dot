@@ -19,6 +19,10 @@ import {
 export const GLOBE_RADIUS = 1
 export const DOT_RADIUS = 0.035
 export const PELLET_RADIUS = 0.02
+export const GOLD_PELLET_RADIUS = 0.032
+
+export const PELLET_VALUE = { common: 1, gold: 3 } as const
+export type PelletKind = keyof typeof PELLET_VALUE
 
 export interface SceneObjects {
   renderer: WebGLRenderer
@@ -66,6 +70,13 @@ export function createScene(canvas: HTMLCanvasElement): SceneObjects {
   return { renderer, scene, camera, playerDot, globe }
 }
 
+export function setPlayerColor(playerDot: Mesh, hex: string): void {
+  const mat = playerDot.material as MeshStandardMaterial
+  mat.color.set(hex)
+  mat.emissive.set(hex)
+  mat.emissiveIntensity = 0.55
+}
+
 function createStarfield(): Points {
   const count = 1200
   const positions = new Float32Array(count * 3)
@@ -96,11 +107,31 @@ export function resizeRenderer(
   camera.updateProjectionMatrix()
 }
 
-export function createPelletMesh(): Mesh {
+export function createPelletMesh(kind: PelletKind = 'common'): Mesh {
+  if (kind === 'gold') {
+    return new Mesh(
+      new SphereGeometry(GOLD_PELLET_RADIUS, 14, 10),
+      new MeshStandardMaterial({
+        color: 0xfde047,
+        emissive: 0xf59e0b,
+        emissiveIntensity: 0.8,
+        roughness: 0.3,
+        metalness: 0.5,
+      }),
+    )
+  }
   return new Mesh(
     new SphereGeometry(PELLET_RADIUS, 10, 8),
     new MeshBasicMaterial({ color: 0xffffff }),
   )
+}
+
+export function pulseGoldPellet(mesh: Mesh, timeMs: number): void {
+  const t = Math.sin(timeMs * 0.005) * 0.5 + 0.5 // 0..1
+  const scale = 1 + 0.18 * t
+  mesh.scale.setScalar(scale)
+  const mat = mesh.material as MeshStandardMaterial
+  mat.emissiveIntensity = 0.5 + 0.6 * t
 }
 
 export function placeOnSphere(mesh: Mesh, pos: Vector3, lift = 0): void {
