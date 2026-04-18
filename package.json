@@ -10,6 +10,9 @@
     "typecheck": "tsc -b --noEmit",
     "test": "vitest",
     "test:run": "vitest run",
+    "worker:dev": "wrangler dev --config worker/wrangler.toml --port 8787",
+    "worker:deploy": "wrangler deploy --config worker/wrangler.toml",
+    "worker:typecheck": "tsc -p worker",
     "deploy": "pnpm run build && wrangler pages deploy dist --project-name blue-dot"
   },
   "dependencies": {
@@ -18,6 +21,7 @@
     "three": "^0.184.0"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260418.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/three": "^0.184.0",
