@@ -23,6 +23,7 @@ export interface GameState {
   player: PlayerState
   pellets: Pellet[]
   keys: Set<string>
+  score: number
 }
 
 export function createGameState(): GameState {
@@ -30,5 +31,6 @@ export function createGameState(): GameState {
     player: { lat: 0, lon: 0, heading: 0, glide: null },
     pellets: [],
     keys: new Set(),
+    score: 0,
   }
 }
