@@ -8,6 +8,8 @@ const GOLD_PROBABILITY = 0.1
 const SANITY_NICK_MAX = 24
 const TICK_MS = 66
 const EAT_RADIUS = 0.05 // angular radians on unit sphere
+const BUMP_RADIUS = 0.04 // touching distance for two dots
+const BUMP_COOLDOWN_MS = 2000
 const MIN_MOVE_INTERVAL_MS = 25 // drop update bursts over ~40 Hz
 
 type PelletKind = 0 | 1 // 0 = common, 1 = gold
@@ -182,6 +184,7 @@ export class World implements DurableObject {
       session.lon = lon
       session.h = h
       session.lastMoveMs = now
+      this.checkBumps(session, now)
       return
     }
 
@@ -196,6 +199,26 @@ export class World implements DurableObject {
       this.removePellet(pid)
       this.topUpPellets()
       return
+    }
+  }
+
+  private checkBumps(mover: Session, now: number): void {
+    if (now - mover.lastBumpMs < BUMP_COOLDOWN_MS) return
+    for (const other of this.sessions.values()) {
+      if (other.id === mover.id) continue
+      if (now - other.lastBumpMs < BUMP_COOLDOWN_MS) continue
+      const d = greatCircleDistance(mover.lat, mover.lon, other.lat, other.lon)
+      if (d > BUMP_RADIUS) continue
+      const winner = mover.score >= other.score ? mover : other
+      const loser = winner === mover ? other : mover
+      if (winner.score !== loser.score && loser.score > 0) {
+        loser.score -= 1
+        winner.score += 1
+      }
+      mover.lastBumpMs = now
+      other.lastBumpMs = now
+      this.eventsThisTick.push({ t: 'bump', a: winner.id, b: loser.id })
+      return // one bump per move
     }
   }
 
