@@ -61,3 +61,52 @@
   min-width: 3ch;
   text-align: right;
 }
+
+.hud__board {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #f1f5f9;
+  font-size: 12px;
+  min-width: 180px;
+  pointer-events: auto;
+}
+
+.hud__row {
+  display: grid;
+  grid-template-columns: 14px 12px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.hud__row--self {
+  color: #fde68a;
+}
+
+.hud__rank {
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: right;
+}
+
+.hud__swatch--sm {
+  width: 10px;
+  height: 10px;
+  box-shadow: 0 0 4px currentColor;
+}
+
+.hud__board-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hud__board-score {
+  font-weight: 700;
+}

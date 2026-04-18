@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react'
-import { Game } from './Game'
+import { Game, type LeaderboardEntry } from './Game'
 import { Hud } from './Hud'
 import { loadIdentity, type Identity } from './game/identity'
 import './App.css'
@@ -7,12 +7,23 @@ import './App.css'
 export function App() {
   const [identity, setIdentity] = useState<Identity>(() => loadIdentity())
   const [score, setScore] = useState(0)
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
   const onScoreChange = useCallback((s: number) => setScore(s), [])
+  const onLeaderboard = useCallback((entries: LeaderboardEntry[]) => setLeaderboard(entries), [])
 
   return (
     <>
-      <Game identity={identity} onScoreChange={onScoreChange} />
-      <Hud identity={identity} score={score} onIdentityChange={setIdentity} />
+      <Game
+        identity={identity}
+        onScoreChange={onScoreChange}
+        onLeaderboard={onLeaderboard}
+      />
+      <Hud
+        identity={identity}
+        score={score}
+        leaderboard={leaderboard}
+        onIdentityChange={setIdentity}
+      />
       <div className="hint" aria-hidden="true">
         <kbd>↑</kbd><kbd>↓</kbd> move
         <span className="hint__sep">·</span>

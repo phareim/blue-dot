@@ -50,12 +50,21 @@ interface RemoteDot {
   durationMs: number
 }
 
+export interface LeaderboardEntry {
+  id: number
+  nickname: string
+  color: string
+  score: number
+  isSelf: boolean
+}
+
 interface Props {
   identity: Identity
   onScoreChange: (score: number) => void
+  onLeaderboard: (entries: LeaderboardEntry[]) => void
 }
 
-export function Game({ identity, onScoreChange }: Props) {
+export function Game({ identity, onScoreChange, onLeaderboard }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -72,7 +81,30 @@ export function Game({ identity, onScoreChange }: Props) {
     const remotes = new Map<number, RemoteDot>()
     let selfId: number | null = null
     let lastScore = 0
+    let lastLeaderKey = ''
     const eatSent = new Set<number>() // dedupe: one eat per pellet until confirmed
+
+    const publishLeaderboard = () => {
+      const all: LeaderboardEntry[] = []
+      if (selfId !== null) {
+        all.push({
+          id: selfId,
+          nickname: identity.nickname,
+          color: identity.color,
+          score: lastScore,
+          isSelf: true,
+        })
+      }
+      for (const [id, r] of remotes) {
+        all.push({ id, nickname: r.nickname, color: r.color, score: r.score, isSelf: false })
+      }
+      all.sort((a, b) => b.score - a.score || a.id - b.id)
+      const top = all.slice(0, 5)
+      const key = top.map((e) => `${e.id}:${e.score}:${e.nickname}:${e.color}`).join('|')
+      if (key === lastLeaderKey) return
+      lastLeaderKey = key
+      onLeaderboard(top)
+    }
 
     const addPellet = (id: number, lat: number, lon: number, kind: WirePelletKind) => {
       if (pellets.has(id)) return
@@ -132,6 +164,7 @@ export function Game({ identity, onScoreChange }: Props) {
       }
       // Seed pellets.
       for (const p of msg.pellets) addPellet(p.id, p.lat, p.lon, p.k)
+      publishLeaderboard()
     }
 
     const onTick = (msg: TickMsg) => {
@@ -165,14 +198,17 @@ export function Game({ identity, onScoreChange }: Props) {
         r.durationMs = 80 // one tick period (66) + small slack
         r.score = score
       }
+      publishLeaderboard()
     }
 
     const onJoin = (msg: JoinMsg) => {
       addRemote(msg.id, msg.nickname, msg.color, 0, 0, 0)
+      publishLeaderboard()
     }
 
     const onLeft = (msg: LeftMsg) => {
       removeRemote(msg.id)
+      publishLeaderboard()
     }
 
     const net = createNet(identity, {
