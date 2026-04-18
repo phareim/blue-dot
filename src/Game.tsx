@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { Mesh, Vector3 } from 'three'
+import { Mesh, MeshStandardMaterial, SphereGeometry, Vector3 } from 'three'
 import {
   createPelletMesh,
   createScene,
@@ -7,34 +7,52 @@ import {
   pulseGoldPellet,
   resizeRenderer,
   setPlayerColor,
-  PELLET_VALUE,
-  type PelletKind,
+  DOT_RADIUS,
 } from './game/scene'
 import { createControls, tickKeyboard } from './game/controls'
 import { updateFollowCam } from './game/camera'
 import { greatCircleDistance, latLonToVec3, slerpLatLon } from './game/sphere'
-import { createGameState, type Pellet } from './game/state'
+import { createGameState } from './game/state'
 import type { Identity } from './game/identity'
+import { createNet } from './game/net'
+import type {
+  JoinMsg,
+  LeftMsg,
+  PelletKind as WirePelletKind,
+  TickMsg,
+  WelcomeMsg,
+} from './game/protocol'
 import './Game.css'
 
-const CLIENT_PELLET_TARGET = 60
-const GOLD_PROBABILITY = 0.1
-const EAT_RADIUS = 0.045 // angular radians; tuned to feel immediate at close range
+const EAT_RADIUS = 0.045 // angular radians — must be <= server EAT_RADIUS (0.05)
 const EAT_POP_MS = 180
+const REMOTE_DOT_RADIUS = DOT_RADIUS * 0.9 // slightly smaller so they don't fully overlap
+
+type KindLabel = 'common' | 'gold'
+function kindLabel(k: WirePelletKind): KindLabel { return k === 1 ? 'gold' : 'common' }
+
+interface PelletVis {
+  mesh: Mesh
+  kind: KindLabel
+  dying: null | { startMs: number }
+}
+
+interface RemoteDot {
+  mesh: Mesh
+  color: string
+  nickname: string
+  score: number
+  fromLat: number
+  fromLon: number
+  toLat: number
+  toLon: number
+  startMs: number
+  durationMs: number
+}
 
 interface Props {
   identity: Identity
   onScoreChange: (score: number) => void
-}
-
-function randomSpherePoint() {
-  const u = Math.random() * 2 - 1
-  const theta = Math.random() * Math.PI * 2
-  const r = Math.sqrt(1 - u * u)
-  const v = new Vector3(r * Math.cos(theta), u, r * Math.sin(theta))
-  const lat = Math.asin(v.y)
-  const lon = Math.atan2(v.z, v.x)
-  return { lat, lon }
 }
 
 export function Game({ identity, onScoreChange }: Props) {
@@ -48,30 +66,132 @@ export function Game({ identity, onScoreChange }: Props) {
     setPlayerColor(s.playerDot, identity.color)
 
     const state = createGameState()
+    state.player.heading = Math.random() * Math.PI * 2
 
+    const pellets = new Map<number, PelletVis>()
+    const remotes = new Map<number, RemoteDot>()
+    let selfId: number | null = null
+    let lastScore = 0
+    const eatSent = new Set<number>() // dedupe: one eat per pellet until confirmed
+
+    const addPellet = (id: number, lat: number, lon: number, kind: WirePelletKind) => {
+      if (pellets.has(id)) return
+      const label = kindLabel(kind)
+      const mesh = createPelletMesh(label)
+      placeOnSphere(mesh, latLonToVec3(lat, lon, 1), label === 'gold' ? 0.012 : 0.005)
+      s.scene.add(mesh)
+      pellets.set(id, { mesh, kind: label, dying: null })
+    }
+
+    const removePellet = (id: number, now: number) => {
+      const pv = pellets.get(id)
+      if (!pv) return
+      if (pv.dying) return
+      pv.dying = { startMs: now }
+    }
+
+    const makeRemoteMesh = (color: string): Mesh => {
+      return new Mesh(
+        new SphereGeometry(REMOTE_DOT_RADIUS, 20, 14),
+        new MeshStandardMaterial({
+          color,
+          emissive: color,
+          emissiveIntensity: 0.35,
+        }),
+      )
+    }
+
+    const addRemote = (
+      id: number, nickname: string, color: string, lat: number, lon: number, score: number,
+    ) => {
+      if (remotes.has(id)) return
+      const mesh = makeRemoteMesh(color)
+      placeOnSphere(mesh, latLonToVec3(lat, lon, 1), 0.008)
+      s.scene.add(mesh)
+      remotes.set(id, {
+        mesh, color, nickname, score,
+        fromLat: lat, fromLon: lon, toLat: lat, toLon: lon,
+        startMs: performance.now(), durationMs: 1,
+      })
+    }
+
+    const removeRemote = (id: number) => {
+      const r = remotes.get(id)
+      if (!r) return
+      s.scene.remove(r.mesh)
+      r.mesh.geometry.dispose()
+      remotes.delete(id)
+    }
+
+    const onWelcome = (msg: WelcomeMsg) => {
+      selfId = msg.you.id
+      // Seed other dots.
+      for (const d of msg.dots) {
+        if (d.id === selfId) continue
+        addRemote(d.id, d.nickname, d.color, d.lat, d.lon, d.score)
+      }
+      // Seed pellets.
+      for (const p of msg.pellets) addPellet(p.id, p.lat, p.lon, p.k)
+    }
+
+    const onTick = (msg: TickMsg) => {
+      const now = performance.now()
+      // Spawned pellets.
+      for (const [id, lat, lon, kind] of msg.spawned) addPellet(id, lat, lon, kind)
+      // Removed pellets (server confirmed eat).
+      for (const id of msg.removed) {
+        removePellet(id, now)
+        eatSent.delete(id)
+      }
+      // Dot updates.
+      for (const [id, lat, lon, , score] of msg.dots) {
+        if (id === selfId) {
+          if (score !== lastScore) {
+            lastScore = score
+            onScoreChange(score)
+          }
+          continue
+        }
+        const r = remotes.get(id)
+        if (!r) continue
+        // Use this remote's current interpolated pose as the new "from" so there's no snap.
+        const t = r.durationMs > 0 ? Math.min(1, (now - r.startMs) / r.durationMs) : 1
+        const cur = slerpLatLon(r.fromLat, r.fromLon, r.toLat, r.toLon, t)
+        r.fromLat = cur.lat
+        r.fromLon = cur.lon
+        r.toLat = lat
+        r.toLon = lon
+        r.startMs = now
+        r.durationMs = 80 // one tick period (66) + small slack
+        r.score = score
+      }
+    }
+
+    const onJoin = (msg: JoinMsg) => {
+      addRemote(msg.id, msg.nickname, msg.color, 0, 0, 0)
+    }
+
+    const onLeft = (msg: LeftMsg) => {
+      removeRemote(msg.id)
+    }
+
+    const net = createNet(identity, {
+      onWelcome, onTick, onJoin, onLeft,
+      onConnectionChange: () => { /* future: show banner */ },
+    })
+
+    // Respawn (local): just randomize our pose. The server will pick up via next move.
     const respawn = () => {
-      const { lat, lon } = randomSpherePoint()
-      state.player.lat = lat
-      state.player.lon = lon
+      const u = Math.random() * 2 - 1
+      const theta = Math.random() * Math.PI * 2
+      const r = Math.sqrt(1 - u * u)
+      const v = new Vector3(r * Math.cos(theta), u, r * Math.sin(theta))
+      state.player.lat = Math.asin(v.y)
+      state.player.lon = Math.atan2(v.z, v.x)
       state.player.heading = Math.random() * Math.PI * 2
       state.player.glide = null
     }
     respawn()
-
-    interface PelletMesh { mesh: Mesh; kind: PelletKind; bornMs: number; dying: null | { startMs: number } }
-    const pelletMeshes = new Map<number, PelletMesh>()
-    let nextId = 1
-    const spawnPellet = () => {
-      const kind: PelletKind = Math.random() < GOLD_PROBABILITY ? 'gold' : 'common'
-      const { lat, lon } = randomSpherePoint()
-      const pellet: Pellet = { id: nextId++, lat, lon, kind }
-      state.pellets.push(pellet)
-      const mesh = createPelletMesh(kind)
-      placeOnSphere(mesh, latLonToVec3(lat, lon, 1), kind === 'gold' ? 0.012 : 0.005)
-      s.scene.add(mesh)
-      pelletMeshes.set(pellet.id, { mesh, kind, bornMs: performance.now(), dying: null })
-    }
-    for (let i = 0; i < CLIENT_PELLET_TARGET; i++) spawnPellet()
 
     const { onKeyDown, onKeyUp, onPointerDown } = createControls(
       state, canvas, s.camera, s.globe, respawn,
@@ -87,19 +207,22 @@ export function Game({ identity, onScoreChange }: Props) {
     let prev = performance.now()
     let raf = 0
 
-    const eatNearby = (now: number) => {
+    const tryEatNearby = () => {
       const p = state.player
-      // iterate a copy — we mutate state.pellets during loop
-      for (let i = state.pellets.length - 1; i >= 0; i--) {
-        const pellet = state.pellets[i]
-        const pm = pelletMeshes.get(pellet.id)
-        if (!pm || pm.dying) continue
-        const d = greatCircleDistance(p.lat, p.lon, pellet.lat, pellet.lon)
+      for (const [id, pv] of pellets) {
+        if (pv.dying) continue
+        if (eatSent.has(id)) continue
+        // Read position back from mesh (already placed on sphere)
+        // Avoid storing lat/lon again: reverse from mesh.position.
+        const pos = pv.mesh.position
+        // Convert xyz back to lat/lon — cheap.
+        const n = pos.clone().normalize()
+        const lat = Math.asin(n.y)
+        const lon = Math.atan2(n.z, n.x)
+        const d = greatCircleDistance(p.lat, p.lon, lat, lon)
         if (d < EAT_RADIUS) {
-          state.score += PELLET_VALUE[pellet.kind]
-          onScoreChange(state.score)
-          pm.dying = { startMs: now }
-          state.pellets.splice(i, 1)
+          eatSent.add(id)
+          net.sendEat(id)
         }
       }
     }
@@ -119,25 +242,32 @@ export function Game({ identity, onScoreChange }: Props) {
         tickKeyboard(state, dt)
       }
 
-      eatNearby(now)
+      tryEatNearby()
+      net.sendMove(state.player.lat, state.player.lon, state.player.heading)
 
-      // Pellet visual updates (pulse + death animation).
-      for (const [id, pm] of pelletMeshes) {
-        if (pm.dying) {
-          const t = Math.min(1, (now - pm.dying.startMs) / EAT_POP_MS)
-          pm.mesh.scale.setScalar(1 + t * 1.8)
-          const mat = pm.mesh.material as { opacity?: number; transparent?: boolean }
+      // Pellet visuals.
+      for (const [id, pv] of pellets) {
+        if (pv.dying) {
+          const t = Math.min(1, (now - pv.dying.startMs) / EAT_POP_MS)
+          pv.mesh.scale.setScalar(1 + t * 1.8)
+          const mat = pv.mesh.material as { opacity?: number; transparent?: boolean }
           mat.transparent = true
           mat.opacity = 1 - t
           if (t >= 1) {
-            s.scene.remove(pm.mesh)
-            pm.mesh.geometry.dispose()
-            pelletMeshes.delete(id)
-            spawnPellet()
+            s.scene.remove(pv.mesh)
+            pv.mesh.geometry.dispose()
+            pellets.delete(id)
           }
-        } else if (pm.kind === 'gold') {
-          pulseGoldPellet(pm.mesh, now)
+        } else if (pv.kind === 'gold') {
+          pulseGoldPellet(pv.mesh, now)
         }
+      }
+
+      // Remote dot interpolation.
+      for (const r of remotes.values()) {
+        const t = r.durationMs > 0 ? Math.min(1, (now - r.startMs) / r.durationMs) : 1
+        const { lat, lon } = slerpLatLon(r.fromLat, r.fromLon, r.toLat, r.toLon, t)
+        placeOnSphere(r.mesh, latLonToVec3(lat, lon, 1), 0.008)
       }
 
       placeOnSphere(s.playerDot, latLonToVec3(state.player.lat, state.player.lon, 1), 0.01)
@@ -153,10 +283,17 @@ export function Game({ identity, onScoreChange }: Props) {
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('resize', onResize)
       canvas.removeEventListener('pointerdown', onPointerDown)
-      pelletMeshes.forEach((pm) => {
-        s.scene.remove(pm.mesh)
-        pm.mesh.geometry.dispose()
+      net.close()
+      pellets.forEach((pv) => {
+        s.scene.remove(pv.mesh)
+        pv.mesh.geometry.dispose()
       })
+      pellets.clear()
+      remotes.forEach((r) => {
+        s.scene.remove(r.mesh)
+        r.mesh.geometry.dispose()
+      })
+      remotes.clear()
       s.renderer.dispose()
     }
   }, [])
