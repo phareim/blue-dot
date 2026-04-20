@@ -1,16 +1,20 @@
 import { PerspectiveCamera, Raycaster, Vector2, Mesh } from 'three'
 import type { GameState } from './state'
 import { vec3ToLatLon, moveAlongHeading, greatCircleDistance } from './sphere'
+import { clampZoom, ZOOM_DEFAULT } from './camera'
 
 const ANG_SPEED = Math.PI / 15
 const ROT_SPEED = Math.PI / 2
 const SHIFT_MULT = 2.5
 const GLIDE_MS_PER_RAD = 700
+const ZOOM_KEY_STEP = 0.18
+const ZOOM_WHEEL_STEP = 0.0015
 
 export interface ControlHandlers {
   onKeyDown: (e: KeyboardEvent) => void
   onKeyUp: (e: KeyboardEvent) => void
   onPointerDown: (e: PointerEvent) => void
+  onWheel: (e: WheelEvent) => void
 }
 
 const MOVEMENT_KEYS = new Set([
@@ -32,6 +36,21 @@ export function createControls(
     if (e.metaKey || e.ctrlKey || e.altKey) return
     if (e.key === 'r' || e.key === 'R' || e.key === 'Home') {
       respawn()
+      e.preventDefault()
+      return
+    }
+    if (e.key === '=' || e.key === '+') {
+      state.zoom = clampZoom(state.zoom - ZOOM_KEY_STEP)
+      e.preventDefault()
+      return
+    }
+    if (e.key === '-' || e.key === '_') {
+      state.zoom = clampZoom(state.zoom + ZOOM_KEY_STEP)
+      e.preventDefault()
+      return
+    }
+    if (e.key === '0') {
+      state.zoom = ZOOM_DEFAULT
       e.preventDefault()
       return
     }
@@ -67,7 +86,12 @@ export function createControls(
     }
   }
 
-  return { onKeyDown, onKeyUp, onPointerDown }
+  const onWheel = (e: WheelEvent) => {
+    e.preventDefault()
+    state.zoom = clampZoom(state.zoom + e.deltaY * ZOOM_WHEEL_STEP)
+  }
+
+  return { onKeyDown, onKeyUp, onPointerDown, onWheel }
 }
 
 function normalizeKey(key: string): string {

@@ -229,12 +229,13 @@ export function Game({ identity, onScoreChange, onLeaderboard }: Props) {
     }
     respawn()
 
-    const { onKeyDown, onKeyUp, onPointerDown } = createControls(
+    const { onKeyDown, onKeyUp, onPointerDown, onWheel } = createControls(
       state, canvas, s.camera, s.globe, respawn,
     )
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
     canvas.addEventListener('pointerdown', onPointerDown)
+    canvas.addEventListener('wheel', onWheel, { passive: false })
 
     const onResize = () => resizeRenderer(s.renderer, s.camera, canvas)
     window.addEventListener('resize', onResize)
@@ -307,7 +308,7 @@ export function Game({ identity, onScoreChange, onLeaderboard }: Props) {
       }
 
       placeOnSphere(s.playerDot, latLonToVec3(state.player.lat, state.player.lon, 1), 0.01)
-      updateFollowCam(s.camera, state.player.lat, state.player.lon, state.player.heading)
+      updateFollowCam(s.camera, state.player.lat, state.player.lon, state.player.heading, state.zoom)
       s.renderer.render(s.scene, s.camera)
       raf = requestAnimationFrame(loop)
     }
@@ -319,6 +320,7 @@ export function Game({ identity, onScoreChange, onLeaderboard }: Props) {
       window.removeEventListener('keyup', onKeyUp)
       window.removeEventListener('resize', onResize)
       canvas.removeEventListener('pointerdown', onPointerDown)
+      canvas.removeEventListener('wheel', onWheel)
       net.close()
       pellets.forEach((pv) => {
         s.scene.remove(pv.mesh)

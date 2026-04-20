@@ -34,6 +34,8 @@ export function App() {
         <kbd>R</kbd> respawn
         <span className="hint__sep">·</span>
         click to go
+        <span className="hint__sep">·</span>
+        <kbd>+</kbd><kbd>-</kbd> zoom
       </div>
     </>
   )

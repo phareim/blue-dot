@@ -24,6 +24,7 @@ export interface GameState {
   pellets: Pellet[]
   keys: Set<string>
   score: number
+  zoom: number
 }
 
 export function createGameState(): GameState {
@@ -32,5 +33,6 @@ export function createGameState(): GameState {
     pellets: [],
     keys: new Set(),
     score: 0,
+    zoom: 1,
   }
 }
