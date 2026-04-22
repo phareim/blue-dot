@@ -62,9 +62,10 @@ interface Props {
   identity: Identity
   onScoreChange: (score: number) => void
   onLeaderboard: (entries: LeaderboardEntry[]) => void
+  onConnectionChange?: (connected: boolean) => void
 }
 
-export function Game({ identity, onScoreChange, onLeaderboard }: Props) {
+export function Game({ identity, onScoreChange, onLeaderboard, onConnectionChange }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -213,7 +214,7 @@ export function Game({ identity, onScoreChange, onLeaderboard }: Props) {
 
     const net = createNet(identity, {
       onWelcome, onTick, onJoin, onLeft,
-      onConnectionChange: () => { /* future: show banner */ },
+      onConnectionChange: (connected) => { onConnectionChange?.(connected) },
     })
 
     // Respawn (local): just randomize our pose. The server will pick up via next move.
