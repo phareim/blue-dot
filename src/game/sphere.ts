@@ -39,6 +39,14 @@ export function slerpLatLon(
   const b = latLonToVec3(lat2, lon2, 1)
   const omega = Math.acos(Math.max(-1, Math.min(1, a.dot(b))))
   if (omega < 1e-8) return { lat: lat1, lon: lon1 }
+  if (omega > Math.PI - 1e-3) {
+    // Antipodal: slerp is undefined (sin(omega) ~= 0 blows up the weights).
+    // Fall back to linear lat/lon interpolation with longitude wrapping.
+    let dLon = lon2 - lon1
+    if (dLon > Math.PI) dLon -= Math.PI * 2
+    if (dLon < -Math.PI) dLon += Math.PI * 2
+    return { lat: lat1 + (lat2 - lat1) * t, lon: lon1 + dLon * t }
+  }
   const sinOmega = Math.sin(omega)
   const k1 = Math.sin((1 - t) * omega) / sinOmega
   const k2 = Math.sin(t * omega) / sinOmega
@@ -58,10 +66,18 @@ export interface TangentFrame {
 
 export function tangentFrame(lat: number, lon: number): TangentFrame {
   const up = latLonToVec3(lat, lon, 1).normalize()
-  const worldUp = new Vector3(0, 1, 0)
-  const east = new Vector3().crossVectors(up, worldUp).normalize()
+  // worldUp is parallel to `up` at the poles, which degenerates the cross
+  // product — fall back to the X axis as reference direction there.
+  const ref = Math.abs(up.y) > 0.999 ? new Vector3(1, 0, 0) : new Vector3(0, 1, 0)
+  const east = new Vector3().crossVectors(up, ref).normalize()
   const north = new Vector3().crossVectors(east, up).normalize()
   return { up, east, north }
+}
+
+/** Wrap an angle to [-PI, PI] so headings don't grow unbounded over time. */
+export function wrapAngle(a: number): number {
+  const twoPi = Math.PI * 2
+  return ((a + Math.PI) % twoPi + twoPi) % twoPi - Math.PI
 }
 
 export function moveAlongHeading(

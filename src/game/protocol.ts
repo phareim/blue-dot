@@ -7,6 +7,15 @@ export interface HelloMsg {
   t: 'hello'
   nickname: string
   color: string
+  lat: number
+  lon: number
+  h: number
+}
+
+export interface ProfileMsg {
+  t: 'profile'
+  nickname: string
+  color: string
 }
 
 export interface MoveMsg {
@@ -21,7 +30,7 @@ export interface EatMsg {
   id: number
 }
 
-export type ClientMsg = HelloMsg | MoveMsg | EatMsg
+export type ClientMsg = HelloMsg | ProfileMsg | MoveMsg | EatMsg
 
 export interface WelcomeMsg {
   t: 'welcome'
@@ -55,6 +64,16 @@ export interface JoinMsg {
   id: number
   nickname: string
   color: string
+  lat: number
+  lon: number
+  score: number
+}
+
+export interface UpdateMsg {
+  t: 'update'
+  id: number
+  nickname: string
+  color: string
 }
 
 export interface LeftMsg {
@@ -62,4 +81,4 @@ export interface LeftMsg {
   id: number
 }
 
-export type ServerMsg = WelcomeMsg | TickMsg | JoinMsg | LeftMsg
+export type ServerMsg = WelcomeMsg | TickMsg | JoinMsg | UpdateMsg | LeftMsg

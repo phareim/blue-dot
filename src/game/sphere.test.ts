@@ -6,6 +6,7 @@ import {
   slerpLatLon,
   tangentFrame,
   moveAlongHeading,
+  wrapAngle,
 } from './sphere'
 
 const close = (a: number, b: number, eps = 1e-6) => Math.abs(a - b) < eps
@@ -65,6 +66,12 @@ describe('slerpLatLon', () => {
     const v = latLonToVec3(r.lat, r.lon, 1)
     expect(close(v.length(), 1, 1e-6)).toBe(true)
   })
+
+  it('antipodal endpoints return finite values', () => {
+    const r = slerpLatLon(0, 0, 0, Math.PI, 0.5)
+    expect(Number.isFinite(r.lat)).toBe(true)
+    expect(Number.isFinite(r.lon)).toBe(true)
+  })
 })
 
 describe('tangentFrame', () => {
@@ -82,6 +89,19 @@ describe('tangentFrame', () => {
     const { up } = tangentFrame(0.3, -0.4)
     const radial = latLonToVec3(0.3, -0.4, 1).normalize()
     expect(close(up.dot(radial), 1, 1e-6)).toBe(true)
+  })
+
+  it('stays orthonormal at the poles', () => {
+    for (const lat of [Math.PI / 2, -Math.PI / 2]) {
+      const { up, east, north } = tangentFrame(lat, 0.7)
+      for (const v of [up, east, north]) {
+        expect(Number.isFinite(v.x)).toBe(true)
+        expect(close(v.length(), 1)).toBe(true)
+      }
+      expect(close(up.dot(east), 0)).toBe(true)
+      expect(close(up.dot(north), 0)).toBe(true)
+      expect(close(east.dot(north), 0)).toBe(true)
+    }
   })
 })
 
@@ -108,5 +128,26 @@ describe('moveAlongHeading', () => {
     const r = moveAlongHeading(0.3, 0.4, 1.1, 0.5)
     const v = latLonToVec3(r.lat, r.lon, 1)
     expect(v.length()).toBeCloseTo(1, 6)
+  })
+
+  it('moves away from the pole without NaN', () => {
+    const r = moveAlongHeading(Math.PI / 2 - 0.01, 0, 0, 0.05)
+    expect(Number.isFinite(r.lat)).toBe(true)
+    expect(Number.isFinite(r.lon)).toBe(true)
+  })
+})
+
+describe('wrapAngle', () => {
+  it('keeps small angles unchanged', () => {
+    expect(wrapAngle(0.5)).toBeCloseTo(0.5, 10)
+    expect(wrapAngle(-2)).toBeCloseTo(-2, 10)
+  })
+
+  it('wraps full turns into [-PI, PI]', () => {
+    expect(wrapAngle(Math.PI * 3)).toBeCloseTo(-Math.PI, 10)
+    expect(wrapAngle(Math.PI * 10)).toBeCloseTo(0, 10)
+    const w = wrapAngle(1234.5)
+    expect(w).toBeGreaterThanOrEqual(-Math.PI)
+    expect(w).toBeLessThanOrEqual(Math.PI)
   })
 })

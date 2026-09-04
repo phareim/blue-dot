@@ -11,6 +11,8 @@ const EAT_RADIUS = 0.05 // angular radians on unit sphere
 const BUMP_RADIUS = 0.04 // touching distance for two dots
 const BUMP_COOLDOWN_MS = 2000
 const MIN_MOVE_INTERVAL_MS = 25 // drop update bursts over ~40 Hz
+const MIN_EAT_INTERVAL_MS = 50 // drop eat spam bursts
+const IDLE_TIMEOUT_MS = 15000 // drop sessions with no inbound traffic (zombie sweep)
 
 type PelletKind = 0 | 1 // 0 = common, 1 = gold
 
@@ -24,6 +26,7 @@ interface Session {
   score: number
   lastBumpMs: number
   lastMoveMs: number
+  lastEatMs: number
   lastInboundMs: number
   ws: WebSocket
   helloed: boolean
@@ -128,6 +131,7 @@ export class World implements DurableObject {
       score: 0,
       lastBumpMs: 0,
       lastMoveMs: 0,
+      lastEatMs: 0,
       lastInboundMs: Date.now(),
       ws,
       helloed: false,
@@ -143,8 +147,15 @@ export class World implements DurableObject {
 
   private dropSession(session: Session): void {
     if (!this.sessions.delete(session.id)) return
+    try { session.ws.close() } catch { /* already gone */ }
     this.broadcast({ t: 'left', id: session.id })
     if (this.sessions.size === 0) this.stopTicker()
+  }
+
+  private sweepIdle(now: number): void {
+    for (const session of this.sessions.values()) {
+      if (now - session.lastInboundMs > IDLE_TIMEOUT_MS) this.dropSession(session)
+    }
   }
 
   private onMessage(session: Session, event: MessageEvent): void {
@@ -160,6 +171,12 @@ export class World implements DurableObject {
     if (msg.t === 'hello' && !session.helloed) {
       session.nickname = sanitizeNick(msg.nickname)
       session.color = sanitizeColor(msg.color)
+      const lat = clampFinite(msg.lat, -Math.PI / 2, Math.PI / 2)
+      const lon = clampFinite(msg.lon, -Math.PI, Math.PI)
+      const h = clampFinite(msg.h, -Math.PI * 4, Math.PI * 4)
+      if (lat !== null) session.lat = lat
+      if (lon !== null) session.lon = lon
+      if (h !== null) session.h = h
       session.helloed = true
       this.sendWelcome(session)
       this.broadcast({
@@ -167,11 +184,26 @@ export class World implements DurableObject {
         id: session.id,
         nickname: session.nickname,
         color: session.color,
+        lat: session.lat,
+        lon: session.lon,
+        score: session.score,
       }, session.id)
       return
     }
 
     if (!session.helloed) return
+
+    if (msg.t === 'profile') {
+      session.nickname = sanitizeNick(msg.nickname)
+      session.color = sanitizeColor(msg.color)
+      this.broadcast({
+        t: 'update',
+        id: session.id,
+        nickname: session.nickname,
+        color: session.color,
+      }, session.id)
+      return
+    }
 
     if (msg.t === 'move') {
       const now = Date.now()
@@ -189,7 +221,10 @@ export class World implements DurableObject {
     }
 
     if (msg.t === 'eat') {
-      const pid = typeof msg.id === 'number' ? msg.id : null
+      const now = Date.now()
+      if (now - session.lastEatMs < MIN_EAT_INTERVAL_MS) return
+      session.lastEatMs = now
+      const pid = typeof msg.id === 'number' && Number.isInteger(msg.id) && msg.id > 0 ? msg.id : null
       if (pid === null) return
       const pellet = this.pellets.get(pid)
       if (!pellet) return
@@ -211,13 +246,13 @@ export class World implements DurableObject {
       if (d > BUMP_RADIUS) continue
       const winner = mover.score >= other.score ? mover : other
       const loser = winner === mover ? other : mover
+      mover.lastBumpMs = now
+      other.lastBumpMs = now
       if (winner.score !== loser.score && loser.score > 0) {
         loser.score -= 1
         winner.score += 1
+        this.eventsThisTick.push({ t: 'bump', a: winner.id, b: loser.id })
       }
-      mover.lastBumpMs = now
-      other.lastBumpMs = now
-      this.eventsThisTick.push({ t: 'bump', a: winner.id, b: loser.id })
       return // one bump per move
     }
   }
@@ -263,6 +298,7 @@ export class World implements DurableObject {
   }
 
   private broadcastTick(): void {
+    this.sweepIdle(Date.now())
     const dots: Array<[number, number, number, number, number]> =
       [...this.sessions.values()].map((s) => [s.id, s.lat, s.lon, s.h, s.score])
     const spawned = this.spawnedThisTick.map((p) => [p.id, p.lat, p.lon, p.kind])

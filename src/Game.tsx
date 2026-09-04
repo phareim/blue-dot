@@ -11,22 +11,26 @@ import {
 } from './game/scene'
 import { createControls, tickKeyboard } from './game/controls'
 import { updateFollowCam } from './game/camera'
-import { greatCircleDistance, latLonToVec3, slerpLatLon } from './game/sphere'
+import { greatCircleDistance, latLonToVec3, slerpLatLon, wrapAngle } from './game/sphere'
 import { createGameState } from './game/state'
 import type { Identity } from './game/identity'
-import { createNet } from './game/net'
+import { createNet, type Net } from './game/net'
 import type {
   JoinMsg,
   LeftMsg,
   PelletKind as WirePelletKind,
   TickMsg,
+  UpdateMsg,
   WelcomeMsg,
 } from './game/protocol'
 import './Game.css'
 
 const EAT_RADIUS = 0.045 // angular radians — must be <= server EAT_RADIUS (0.05)
 const EAT_POP_MS = 180
+const EAT_RETRY_MS = 600 // re-send eat if the server hasn't confirmed by now (see tryEatNearby)
 const REMOTE_DOT_RADIUS = DOT_RADIUS * 0.9 // slightly smaller so they don't fully overlap
+const GHOST_TICKS = 150 // drop remotes unseen for ~10s (missed `left` messages)
+const FALLBACK_COLOR = '#38bdf8' // must match worker DEFAULT_COLOR
 
 type KindLabel = 'common' | 'gold'
 function kindLabel(k: WirePelletKind): KindLabel { return k === 1 ? 'gold' : 'common' }
@@ -34,6 +38,8 @@ function kindLabel(k: WirePelletKind): KindLabel { return k === 1 ? 'gold' : 'co
 interface PelletVis {
   mesh: Mesh
   kind: KindLabel
+  lat: number
+  lon: number
   dying: null | { startMs: number }
 }
 
@@ -48,6 +54,14 @@ interface RemoteDot {
   toLon: number
   startMs: number
   durationMs: number
+  missedTicks: number
+}
+
+function disposeMesh(mesh: Mesh): void {
+  mesh.geometry.dispose()
+  const mat = mesh.material as { dispose?: () => void } | { dispose?: () => void }[]
+  if (Array.isArray(mat)) mat.forEach((m) => m.dispose?.())
+  else mat.dispose?.()
 }
 
 export interface LeaderboardEntry {
@@ -67,6 +81,17 @@ interface Props {
 
 export function Game({ identity, onScoreChange, onLeaderboard, onConnectionChange }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const netRef = useRef<Net | null>(null)
+  const playerDotRef = useRef<Mesh | null>(null)
+  // Live identity for the socket (hello on reconnect, leaderboard self-row).
+  const identityRef = useRef(identity)
+  identityRef.current = identity
+
+  // Push renames/recolors to the server without dropping the session.
+  useEffect(() => {
+    netRef.current?.sendProfile(identity)
+    if (playerDotRef.current) setPlayerColor(playerDotRef.current, identity.color)
+  }, [identity])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -83,15 +108,19 @@ export function Game({ identity, onScoreChange, onLeaderboard, onConnectionChang
     let selfId: number | null = null
     let lastScore = 0
     let lastLeaderKey = ''
-    const eatSent = new Set<number>() // dedupe: one eat per pellet until confirmed
+    // pellet id -> ms timestamp of the last eat sent. Entries are retried after
+    // EAT_RETRY_MS (a rejected eat must not block the pellet forever) and
+    // cleared when the server confirms the removal.
+    const eatSent = new Map<number, number>()
 
     const publishLeaderboard = () => {
+      const id = identityRef.current
       const all: LeaderboardEntry[] = []
       if (selfId !== null) {
         all.push({
           id: selfId,
-          nickname: identity.nickname,
-          color: identity.color,
+          nickname: id.nickname,
+          color: id.color,
           score: lastScore,
           isSelf: true,
         })
@@ -113,7 +142,7 @@ export function Game({ identity, onScoreChange, onLeaderboard, onConnectionChang
       const mesh = createPelletMesh(label)
       placeOnSphere(mesh, latLonToVec3(lat, lon, 1), label === 'gold' ? 0.012 : 0.005)
       s.scene.add(mesh)
-      pellets.set(id, { mesh, kind: label, dying: null })
+      pellets.set(id, { mesh, kind: label, lat, lon, dying: null })
     }
 
     const removePellet = (id: number, now: number) => {
@@ -137,14 +166,27 @@ export function Game({ identity, onScoreChange, onLeaderboard, onConnectionChang
     const addRemote = (
       id: number, nickname: string, color: string, lat: number, lon: number, score: number,
     ) => {
-      if (remotes.has(id)) return
+      const existing = remotes.get(id)
+      if (existing) {
+        // A join arriving after a tick-placeholder (or a re-join) corrects it.
+        existing.nickname = nickname
+        existing.score = score
+        if (existing.color !== color) {
+          existing.color = color
+          const mat = existing.mesh.material as MeshStandardMaterial
+          mat.color.set(color)
+          mat.emissive.set(color)
+        }
+        existing.missedTicks = 0
+        return
+      }
       const mesh = makeRemoteMesh(color)
       placeOnSphere(mesh, latLonToVec3(lat, lon, 1), 0.008)
       s.scene.add(mesh)
       remotes.set(id, {
         mesh, color, nickname, score,
         fromLat: lat, fromLon: lon, toLat: lat, toLon: lon,
-        startMs: performance.now(), durationMs: 1,
+        startMs: performance.now(), durationMs: 1, missedTicks: 0,
       })
     }
 
@@ -152,8 +194,21 @@ export function Game({ identity, onScoreChange, onLeaderboard, onConnectionChang
       const r = remotes.get(id)
       if (!r) return
       s.scene.remove(r.mesh)
-      r.mesh.geometry.dispose()
+      disposeMesh(r.mesh)
       remotes.delete(id)
+    }
+
+    const applyProfile = (id: number, nickname: string, color: string) => {
+      const r = remotes.get(id)
+      if (!r) return
+      r.nickname = nickname
+      if (r.color !== color) {
+        r.color = color
+        const mat = r.mesh.material as MeshStandardMaterial
+        mat.color.set(color)
+        mat.emissive.set(color)
+      }
+      publishLeaderboard()
     }
 
     const onWelcome = (msg: WelcomeMsg) => {
@@ -178,6 +233,7 @@ export function Game({ identity, onScoreChange, onLeaderboard, onConnectionChang
         eatSent.delete(id)
       }
       // Dot updates.
+      const seen = new Set<number>()
       for (const [id, lat, lon, , score] of msg.dots) {
         if (id === selfId) {
           if (score !== lastScore) {
@@ -186,25 +242,44 @@ export function Game({ identity, onScoreChange, onLeaderboard, onConnectionChang
           }
           continue
         }
-        const r = remotes.get(id)
-        if (!r) continue
-        // Use this remote's current interpolated pose as the new "from" so there's no snap.
-        const t = r.durationMs > 0 ? Math.min(1, (now - r.startMs) / r.durationMs) : 1
-        const cur = slerpLatLon(r.fromLat, r.fromLon, r.toLat, r.toLon, t)
-        r.fromLat = cur.lat
-        r.fromLon = cur.lon
-        r.toLat = lat
-        r.toLon = lon
-        r.startMs = now
-        r.durationMs = 80 // one tick period (66) + small slack
-        r.score = score
+        seen.add(id)
+        let r = remotes.get(id)
+        if (!r) {
+          // Join missed (reconnect race): placeholder until join/update corrects it.
+          addRemote(id, `dot-${id}`, FALLBACK_COLOR, lat, lon, score)
+          r = remotes.get(id)
+          if (!r) continue
+          publishLeaderboard()
+        } else {
+          // Use this remote's current interpolated pose as the new "from" so there's no snap.
+          const t = r.durationMs > 0 ? Math.min(1, (now - r.startMs) / r.durationMs) : 1
+          const cur = slerpLatLon(r.fromLat, r.fromLon, r.toLat, r.toLon, t)
+          r.fromLat = cur.lat
+          r.fromLon = cur.lon
+          r.toLat = lat
+          r.toLon = lon
+          r.startMs = now
+          r.durationMs = 80 // one tick period (66) + small slack
+          r.score = score
+        }
+        r.missedTicks = 0
+      }
+      // Ghost sweep: remotes absent from ticks for a while (missed `left`).
+      for (const [id, r] of remotes) {
+        if (seen.has(id)) continue
+        r.missedTicks += 1
+        if (r.missedTicks > GHOST_TICKS) removeRemote(id)
       }
       publishLeaderboard()
     }
 
     const onJoin = (msg: JoinMsg) => {
-      addRemote(msg.id, msg.nickname, msg.color, 0, 0, 0)
+      addRemote(msg.id, msg.nickname, msg.color, msg.lat, msg.lon, msg.score)
       publishLeaderboard()
+    }
+
+    const onUpdate = (msg: UpdateMsg) => {
+      applyProfile(msg.id, msg.nickname, msg.color)
     }
 
     const onLeft = (msg: LeftMsg) => {
@@ -212,10 +287,18 @@ export function Game({ identity, onScoreChange, onLeaderboard, onConnectionChang
       publishLeaderboard()
     }
 
-    const net = createNet(identity, {
-      onWelcome, onTick, onJoin, onLeft,
-      onConnectionChange: (connected) => { onConnectionChange?.(connected) },
-    })
+    const net = createNet(
+      {
+        getIdentity: () => identityRef.current,
+        getPos: () => ({ lat: state.player.lat, lon: state.player.lon, h: state.player.heading }),
+      },
+      {
+        onWelcome, onTick, onJoin, onUpdate, onLeft,
+        onConnectionChange: (connected) => { onConnectionChange?.(connected) },
+      },
+    )
+    netRef.current = net
+    playerDotRef.current = s.playerDot
 
     // Respawn (local): just randomize our pose. The server will pick up via next move.
     const respawn = () => {
@@ -245,21 +328,20 @@ export function Game({ identity, onScoreChange, onLeaderboard, onConnectionChang
     let prev = performance.now()
     let raf = 0
 
-    const tryEatNearby = () => {
+    const tryEatNearby = (now: number) => {
       const p = state.player
       for (const [id, pv] of pellets) {
         if (pv.dying) continue
-        if (eatSent.has(id)) continue
-        // Read position back from mesh (already placed on sphere)
-        // Avoid storing lat/lon again: reverse from mesh.position.
-        const pos = pv.mesh.position
-        // Convert xyz back to lat/lon — cheap.
-        const n = pos.clone().normalize()
-        const lat = Math.asin(n.y)
-        const lon = Math.atan2(n.z, n.x)
-        const d = greatCircleDistance(p.lat, p.lon, lat, lon)
+        const sentAt = eatSent.get(id)
+        if (sentAt !== undefined) {
+          // Still awaiting confirmation — but a rejection (stale position at the
+          // server) must not block the pellet forever, so retry after a delay.
+          if (now - sentAt < EAT_RETRY_MS) continue
+          eatSent.delete(id)
+        }
+        const d = greatCircleDistance(p.lat, p.lon, pv.lat, pv.lon)
         if (d < EAT_RADIUS) {
-          eatSent.add(id)
+          eatSent.set(id, now)
           net.sendEat(id)
         }
       }
@@ -280,7 +362,8 @@ export function Game({ identity, onScoreChange, onLeaderboard, onConnectionChang
         tickKeyboard(state, dt)
       }
 
-      tryEatNearby()
+      tryEatNearby(now)
+      state.player.heading = wrapAngle(state.player.heading)
       net.sendMove(state.player.lat, state.player.lon, state.player.heading)
 
       // Pellet visuals.
@@ -293,7 +376,7 @@ export function Game({ identity, onScoreChange, onLeaderboard, onConnectionChang
           mat.opacity = 1 - t
           if (t >= 1) {
             s.scene.remove(pv.mesh)
-            pv.mesh.geometry.dispose()
+            disposeMesh(pv.mesh)
             pellets.delete(id)
           }
         } else if (pv.kind === 'gold') {
@@ -323,14 +406,16 @@ export function Game({ identity, onScoreChange, onLeaderboard, onConnectionChang
       canvas.removeEventListener('pointerdown', onPointerDown)
       canvas.removeEventListener('wheel', onWheel)
       net.close()
+      netRef.current = null
+      playerDotRef.current = null
       pellets.forEach((pv) => {
         s.scene.remove(pv.mesh)
-        pv.mesh.geometry.dispose()
+        disposeMesh(pv.mesh)
       })
       pellets.clear()
       remotes.forEach((r) => {
         s.scene.remove(r.mesh)
-        r.mesh.geometry.dispose()
+        disposeMesh(r.mesh)
       })
       remotes.clear()
       s.renderer.dispose()

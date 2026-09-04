@@ -18,6 +18,10 @@ export function Hud({ identity, score, leaderboard, connected, onIdentityChange 
   const [offlineVisible, setOfflineVisible] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const prevScore = useRef(score)
+  // Mirror of `editing` for event handlers: Escape unmounts the input, and the
+  // ensuing blur must not commit the cancelled draft.
+  const editingRef = useRef(false)
+  const skipBlurCommit = useRef(false)
 
   useEffect(() => {
     if (editing) inputRef.current?.select()
@@ -39,6 +43,8 @@ export function Hud({ identity, score, leaderboard, connected, onIdentityChange 
   }, [connected])
 
   const commit = () => {
+    if (!editingRef.current) return
+    editingRef.current = false
     const next: Identity = { ...identity, nickname: sanitizeNickname(draft) }
     saveIdentity(next)
     onIdentityChange(next)
@@ -46,8 +52,19 @@ export function Hud({ identity, score, leaderboard, connected, onIdentityChange 
   }
 
   const cancel = () => {
+    if (!editingRef.current) return
+    editingRef.current = false
+    skipBlurCommit.current = true
     setDraft(identity.nickname)
     setEditing(false)
+  }
+
+  const onBlur = () => {
+    if (skipBlurCommit.current) {
+      skipBlurCommit.current = false
+      return
+    }
+    commit()
   }
 
   return (
@@ -61,7 +78,7 @@ export function Hud({ identity, score, leaderboard, connected, onIdentityChange 
             value={draft}
             autoFocus
             onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
+            onBlur={onBlur}
             onKeyDown={(e) => {
               if (e.key === 'Enter') commit()
               if (e.key === 'Escape') cancel()
@@ -74,6 +91,7 @@ export function Hud({ identity, score, leaderboard, connected, onIdentityChange 
             className="hud__name"
             onClick={() => {
               setDraft(identity.nickname)
+              editingRef.current = true
               setEditing(true)
             }}
             title="click to rename"

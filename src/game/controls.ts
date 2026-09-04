@@ -56,6 +56,8 @@ export function createControls(
     }
     const k = normalizeKey(e.key)
     if (MOVEMENT_KEYS.has(k)) {
+      // Steering cancels click-to-go: keys always win, so glides never trap input.
+      if (k !== 'Shift') state.player.glide = null
       state.keys.add(k)
       e.preventDefault()
     }
@@ -108,8 +110,8 @@ export function tickKeyboard(state: GameState, dtMs: number): void {
   const left = state.keys.has('ArrowLeft') || state.keys.has('a')
   const right = state.keys.has('ArrowRight') || state.keys.has('d')
 
-  if (left) state.player.heading -= ROT_SPEED * dt * mult
-  if (right) state.player.heading += ROT_SPEED * dt * mult
+  if (left) state.player.heading -= ROT_SPEED * dt
+  if (right) state.player.heading += ROT_SPEED * dt
 
   let step = 0
   if (forward) step += ANG_SPEED * dt * mult
