@@ -1,46 +1,44 @@
-import { useCallback, useState } from 'react'
-import { Game, type LeaderboardEntry } from './Game'
-import { Hud } from './Hud'
-import { loadIdentity, type Identity } from './game/identity'
-import './App.css'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { Game } from './blue/game'
+import { Store, initialHud, loadBest, loadMuted } from './blue/store'
+import { Hud } from './ui/Hud'
 
 export function App() {
-  const [identity, setIdentity] = useState<Identity>(() => loadIdentity())
-  const [score, setScore] = useState(0)
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([])
-  const [connected, setConnected] = useState(true)
-  const onScoreChange = useCallback((s: number) => setScore(s), [])
-  const onLeaderboard = useCallback((entries: LeaderboardEntry[]) => setLeaderboard(entries), [])
-  const onConnectionChange = useCallback((c: boolean) => setConnected(c), [])
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const overlayRef = useRef<HTMLDivElement>(null)
+  const store = useMemo(() => new Store(initialHud(loadBest(), loadMuted())), [])
+  const [game, setGame] = useState<Game | null>(null)
+  const [failed, setFailed] = useState(false)
+  const hud = useSyncExternalStore(store.subscribe, store.get)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    const overlay = overlayRef.current
+    if (!canvas || !overlay) return
+    let g: Game
+    try {
+      g = new Game(canvas, overlay, store)
+    } catch (err) {
+      console.error(err)
+      setFailed(true)
+      return
+    }
+    setGame(g)
+    ;(window as unknown as { blue?: Game }).blue = g
+    return () => g.dispose()
+  }, [store])
 
   return (
-    <>
-      <Game
-        identity={identity}
-        onScoreChange={onScoreChange}
-        onLeaderboard={onLeaderboard}
-        onConnectionChange={onConnectionChange}
-      />
-      <Hud
-        identity={identity}
-        score={score}
-        leaderboard={leaderboard}
-        connected={connected}
-        onIdentityChange={setIdentity}
-      />
-      <div className="hint" aria-hidden="true">
-        <kbd>↑</kbd><kbd>↓</kbd> move
-        <span className="hint__sep">·</span>
-        <kbd>←</kbd><kbd>→</kbd> turn
-        <span className="hint__sep">·</span>
-        <kbd>Shift</kbd> fast
-        <span className="hint__sep">·</span>
-        <kbd>R</kbd> respawn
-        <span className="hint__sep">·</span>
-        click to go
-        <span className="hint__sep">·</span>
-        <kbd>+</kbd><kbd>-</kbd> zoom
-      </div>
-    </>
+    <div className="blue">
+      <canvas ref={canvasRef} className="blue__canvas" />
+      <div ref={overlayRef} className="blue__overlay" />
+      {failed ? (
+        <div className="screen">
+          <p className="tagline">This game needs WebGL 2, which this browser did not give it.</p>
+        </div>
+      ) : (
+        <Hud hud={hud} game={game} />
+      )}
+    </div>
   )
 }

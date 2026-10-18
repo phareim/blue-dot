@@ -1,10 +1,6 @@
-import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import './index.css'
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+// No StrictMode: its double mount would build the WebGL game twice.
+createRoot(document.getElementById('root')!).render(<App />)
