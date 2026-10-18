@@ -44,11 +44,15 @@ const FinalShader = {
         float k = s.w * exp(-pow((r - s.z) * 14.0, 2.0));
         uv -= (d / r) / asp * k * 0.035;
       }
+      // Gravitational lens: deflection falls off as 1/r; inside the Einstein radius the far side shows through.
+      float shadow = 1.0;
       if (uLens.z > 0.0) {
+        float rs = uLens.z;
         vec2 d = (uv - uLens.xy) * asp;
-        float r = length(d) + 1e-4;
-        float pull = uLens.z * 0.012 / (r * r + 0.004);
-        uv -= (d / r) / asp * min(pull, r * 0.9);
+        float r = max(length(d), 1e-4);
+        float defl = rs * rs * 3.0 / r;
+        uv -= (d / r) / asp * defl;
+        shadow = smoothstep(rs * 0.85, rs * 1.15, r);
       }
       vec2 dir = uv - 0.5;
       float ca = uCA * (0.0015 + dot(dir, dir) * 0.03);
@@ -56,6 +60,7 @@ const FinalShader = {
       col.r = texture2D(tDiffuse, uv + dir * ca).r;
       col.g = texture2D(tDiffuse, uv).g;
       col.b = texture2D(tDiffuse, uv - dir * ca).b;
+      col *= shadow;
       float l = dot(col, vec3(0.2126, 0.7152, 0.0722));
       col = mix(vec3(l), col, uSat) * uTint;
       col += uFlashCol * uFlash;
@@ -128,7 +133,7 @@ export class Post {
     this.ca = Math.max(0, this.ca - dt * 2.2)
     this.flash = Math.max(0, this.flash - dt * 3.2)
     this.bloomBoost = Math.max(0, this.bloomBoost - dt * 1.5)
-    u.uCA.value = 1 + this.ca * 6
+    u.uCA.value = 0.35 + this.ca * 6
     u.uFlash.value = this.flash
     ;(u.uFlashCol.value as Color).copy(this.flashCol)
     ;(u.uTint.value as Color).copy(this.tint)

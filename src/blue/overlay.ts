@@ -78,7 +78,11 @@ export class Overlay {
     this.cardTimer = setTimeout(() => c.classList.remove('go'), ms)
   }
 
-  label(i: number, visible: boolean, x = 0, y = 0, name = '', text = '', color = '#fff', near = false) {
+  /**
+   * One of the three boon cards shown during a flight. `x` is the card's centre as a fraction of the
+   * screen width: the same place a finger or cursor steers the comet into that boon's orb.
+   */
+  label(i: number, visible: boolean, x = 0.5, name = '', text = '', color = '#fff', near = false) {
     const d = this.labels[i]
     if (!visible) {
       d.style.opacity = '0'
@@ -93,8 +97,9 @@ export class Overlay {
       t.textContent = text
       d.append(n, t)
     }
-    d.style.opacity = '1'
-    d.style.transform = `translate(${x}px, ${y}px) translate(-50%, -130%) scale(${near ? 1.12 : 1})`
+    d.style.opacity = near ? '1' : '0.62'
+    d.style.left = `${x * 100}%`
+    d.classList.toggle('boon-label--near', near)
     d.style.setProperty('--c', color)
   }
 

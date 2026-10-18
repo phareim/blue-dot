@@ -62,7 +62,7 @@ export interface Wave {
   active: boolean
 }
 
-export const WAVE = { amp: 1.15, speed: 1.05, width: 0.16, every: 5.5 }
+export const WAVE = { amp: 0.55, speed: 1.05, width: 0.12, every: 5.5 }
 export const VENT = { radius: 1.35, idle: [3.5, 7], rumble: 1.1, erupt: 1.3, launch: 21 }
 
 let bodyIds = 0
@@ -301,8 +301,8 @@ export class StarSystem {
     this.group.add(this.sun)
     const hue = [new Color('#ffb347'), new Color('#ff6a3d'), new Color('#9fd4ff'), new Color('#ff7ad9')][index % 4]
     this.sunMat.uniforms.uColor.value = hue
-    this.sunGlow = new Mesh(new PlaneGeometry(1, 1), glowMaterial(hue.clone().multiplyScalar(2.2), 1))
-    this.sunGlow.scale.setScalar(this.sunRadius * 7)
+    this.sunGlow = new Mesh(new PlaneGeometry(1, 1), glowMaterial(hue.clone().multiplyScalar(1.1), 1))
+    this.sunGlow.scale.setScalar(this.sunRadius * 4.2)
     this.group.add(this.sunGlow)
 
     const types = this.pickTypes(r)

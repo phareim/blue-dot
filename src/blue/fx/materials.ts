@@ -74,7 +74,7 @@ export function planetMaterial(type: PlanetType, paint: DataTexture, seed: numbe
         float wave = 0.0;
         if (uWaveAmp > 0.0) {
           float a = acos(clamp(dot(vN, uWaveDir), -1.0, 1.0));
-          float d = (a - uWaveFront) / 0.16;
+          float d = (a - uWaveFront) / 0.12;
           wave = exp(-d * d);
           pos += vN * uWaveAmp * wave;
         }
@@ -180,8 +180,8 @@ export function planetMaterial(type: PlanetType, paint: DataTexture, seed: numbe
         float cell = smoothstep(0.965, 1.0, lat);
         float scan = 0.5 + 0.5 * sin(dot(n, normalize(vec3(1.0, 0.6, 0.3))) * 22.0 - uTime * 3.0);
         lit = mix(lit, lit * 0.22, pm);
-        emis += pm * (uPaintCol * (0.55 + 0.35 * scan + 0.7 * uBeat) + (uPaintCol * 1.6 + vec3(0.1, 0.25, 0.4)) * cell);
-        emis += (uPaintCol * 2.6 + vec3(0.6, 0.9, 1.2)) * edge * (1.0 + uBeat);
+        emis += pm * (uPaintCol * (0.22 + 0.16 * scan + 0.3 * uBeat) + (uPaintCol * 0.8 + vec3(0.04, 0.12, 0.2)) * cell);
+        emis += (uPaintCol * 2.0 + vec3(0.4, 0.7, 1.0)) * edge * (1.0 + 0.6 * uBeat);
 
         // A lit world glows all over
         if (uLit > 0.0) {
@@ -199,7 +199,7 @@ export function planetMaterial(type: PlanetType, paint: DataTexture, seed: numbe
           emis += rc.rgb * k * k;
         }
 
-        emis += uGlow * vWave * 0.9;
+        emis += uGlow * vWave * 0.35;
         gl_FragColor = vec4(lit + emis + vec3(uFlash), 1.0);
       }
     `,
@@ -304,8 +304,8 @@ export function sunMaterial(): ShaderMaterial {
         vec3 V = normalize(cameraPosition - vWorld);
         float limb = pow(max(dot(n, V), 0.0), 0.5);
         vec3 col = mix(uColor * 2.0, vec3(4.0, 3.4, 2.6), smoothstep(-0.2, 0.6, g)) * (0.6 + 0.6 * limb);
-        col = mix(col, vec3(8.0, 8.0, 9.0), uHeat);
-        gl_FragColor = vec4(col * (1.0 + uHeat * 4.0), 1.0);
+        col = mix(col, vec3(2.6, 2.5, 2.7), uHeat * 0.8);
+        gl_FragColor = vec4(col * (1.0 + uHeat * 0.6), 1.0);
       }
     `,
   })

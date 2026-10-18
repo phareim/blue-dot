@@ -1,23 +1,19 @@
-# Blue Dot
+# Blue: notes for agents
 
-React web app with a draggable blue dot (Pointer Events, works for mouse + touch + pen).
+Read `README.md` and `docs/design.md` first. The game is in `src/blue/`, the HUD in `src/ui/`.
 
-## Tech Stack
+## Working on it
 
-- TypeScript, React 18
-- Vite
-- pnpm
+- Tuning (speeds, scores, paint targets, enemy mix, boons) lives in `src/blue/config.ts`. Change numbers there, not in `game.ts`.
+- `src/blue/geo.ts` does the sphere maths, and its tests guard the loop logic. Run `pnpm test:run` after touching it.
+- Everything per-frame avoids allocation: module-level temp vectors (`tA`, `tB`, …), pooled particles, instanced enemies, one ribbon buffer per trail. Keep it that way. The target is a phone.
+- Colours above 1.0 are deliberate: bloom picks up HDR values. When something looks washed out, lower its intensity before touching bloom.
+- `window.blue` is the running `Game`. The lab scripts drive it through its fields; TypeScript's `private` does not hide them at runtime.
 
-## Commands
+## Checking a change
 
-- `pnpm install` — install dependencies
-- `pnpm run dev` — start Vite dev server
-- `pnpm run build` — type-check + production build
-- `pnpm run typecheck` — type-check only
-- `pnpm run deploy` — build and deploy to Cloudflare Pages (`blue-dot` project)
-
-## Deployment
-
-Cloudflare Pages project: `blue-dot` (live at https://blue-dot-1og.pages.dev/).
-Pushes to `main` auto-deploy via `.github/workflows/deploy.yml`. The workflow
-uses GitHub secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+- Sleeper has no GPU. Headless Chrome draws WebGL only with SwiftShader:
+  `CHROME_BIN=<wrapper> heavy -x chrome -- node scripts/lab.mjs`. The wrapper runs Chrome for Testing with `--use-angle=swiftshader --enable-unsafe-swiftshader --ignore-gpu-blocklist`. It is slow, so the scripts wait in game time.
+- For look and frame rate, run the tour on the Mac: build, then `rsync -a --delete dist scripts mac:blue-lab/` and `ssh mac 'sh ~/blue-lab/scripts/mac-tour.sh desktop'` (or `phone`). Stills land in `mac:blue-lab/shots/`.
+- Before a deploy, run a phone-sized lab with a real finger drag (`lab.mjs … phone`). The script checks that the comet turns toward a held finger with a negative touch id.
+- No game run posts anything anywhere, so the scripts are safe against any server. They are written for a local preview (`npx vite preview --port 4173`).

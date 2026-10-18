@@ -27,7 +27,8 @@ export class Sky {
 
   constructor() {
     const dome = new Mesh(new SphereGeometry(1500, 32, 24), this.nebula)
-    dome.renderOrder = -10
+    // Drawn after the planets: its noise is then shaded only where no planet already wrote depth.
+    dome.renderOrder = 1
     dome.frustumCulled = false
     this.group.add(dome)
 

@@ -213,17 +213,34 @@ export function makeLaunchStar() {
   const beamMat = new ShaderMaterial({
     uniforms: { uTime: { value: 0 }, uColor: { value: new Color(1, 0.8, 0.35) } },
     vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
-    fragmentShader: `uniform float uTime; uniform vec3 uColor; varying vec2 vUv; void main(){ float a = (1.0 - vUv.y) * (0.6 + 0.4*sin(vUv.y*30.0 - uTime*8.0)); float edge = 1.0 - abs(vUv.x*2.0-1.0); gl_FragColor = vec4(uColor * a * edge * 1.6, 1.0); }`,
+    fragmentShader: `uniform float uTime; uniform vec3 uColor; varying vec2 vUv; void main(){ float a = pow(1.0 - vUv.y, 1.6) * (0.6 + 0.4*sin(vUv.y*30.0 - uTime*8.0)); float edge = pow(1.0 - abs(fract(vUv.x*2.0)*2.0-1.0), 2.0); gl_FragColor = vec4(uColor * a * edge * 0.7, 1.0); }`,
     transparent: true,
     blending: AdditiveBlending,
     depthWrite: false,
     side: DoubleSide,
   })
-  const beam = new Mesh(new CylinderGeometry(0.9, 1.4, 26, 24, 1, true), beamMat)
-  beam.position.y = 13
+  const beam = new Mesh(new CylinderGeometry(0.5, 0.9, 18, 24, 1, true), beamMat)
+  beam.position.y = 9
   const halo = new Mesh(new PlaneGeometry(1, 1), glowMaterial(new Color(1, 0.75, 0.3), 2))
   halo.scale.setScalar(6)
   return { group, starMesh, beam, beamMat, halo }
+}
+
+/** A camera-facing shock ring for the supernova. Set `uA` for its brightness. */
+export function makeShockRing(): Mesh {
+  const mat = new ShaderMaterial({
+    uniforms: { uA: { value: 0 }, uColor: { value: new Color(2.4, 1.7, 1.1) } },
+    vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+    fragmentShader: `uniform float uA; uniform vec3 uColor; varying vec2 vUv; void main(){ float d = length(vUv - 0.5) * 2.0; float k = smoothstep(0.78, 0.96, d) * (1.0 - smoothstep(0.96, 1.0, d)); float inner = smoothstep(0.2, 0.95, d) * (1.0 - step(1.0, d)) * 0.12; gl_FragColor = vec4(uColor * (k + inner) * uA, 1.0); }`,
+    transparent: true,
+    blending: AdditiveBlending,
+    depthWrite: false,
+    side: DoubleSide,
+  })
+  const m = new Mesh(new PlaneGeometry(1, 1), mat)
+  m.frustumCulled = false
+  m.renderOrder = 7
+  return m
 }
 
 /** A singularity: a black core inside a hot accretion disc. */

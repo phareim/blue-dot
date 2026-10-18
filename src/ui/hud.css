@@ -105,28 +105,38 @@
 
 .boon-label {
   position: absolute;
-  left: 0;
-  top: 0;
+  bottom: calc(max(var(--gutter), env(safe-area-inset-bottom)) + 96px);
+  transform: translateX(-50%);
   opacity: 0;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s, transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), border-color 0.2s, background 0.2s;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 5px;
   text-align: center;
-  width: 150px;
+  width: min(29vw, 180px);
+  padding: 10px 6px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(6, 10, 26, 0.5);
+}
+.boon-label--near {
+  transform: translateX(-50%) translateY(-6px) scale(1.06);
+  border-color: var(--c);
+  background: rgba(10, 16, 40, 0.72);
+  box-shadow: 0 0 22px -4px var(--c);
 }
 .boon-label b {
   font-family: var(--display);
   font-weight: 700;
-  font-size: 15px;
+  font-size: clamp(12px, 3.4vw, 15px);
   color: var(--c);
-  text-shadow: 0 0 16px var(--c), 0 2px 6px #000;
+  text-shadow: 0 0 14px var(--c);
 }
 .boon-label span {
-  font-size: 12px;
+  font-size: clamp(11px, 3vw, 13px);
+  line-height: 1.3;
   color: var(--ink);
-  text-shadow: 0 2px 6px #000;
 }
 
 .star-arrow {

@@ -187,7 +187,8 @@ export class Swarm {
     switch (e.kind) {
       case 'mite': {
         e.h.applyAxisAngle(e.n, Math.sin(e.age * 1.3 + e.phase) * 1.1 * dt * ts)
-        if (sameBody && dirTo(e.n, ctx.playerN, tD)) turnToward(e.n, e.h, tD, turn * 0.35)
+        // Mites drift toward the comet only when it is close: a swarm, not a pack.
+        if (sameBody && e.n.angleTo(ctx.playerN) * e.body.radius < 7 && dirTo(e.n, ctx.playerN, tD)) turnToward(e.n, e.h, tD, turn * 0.3)
         break
       }
       case 'hunter': {

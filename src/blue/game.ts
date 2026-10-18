@@ -3,6 +3,7 @@ import {
   Color,
   Quaternion,
   Scene,
+  ShaderMaterial,
   Vector3,
   WebGLRenderer,
 } from 'three'
@@ -31,7 +32,7 @@ import { GRID, StarSystem, VENT, WAVE, type Body, type World } from './world'
 import { Particles, Mode } from './fx/particles'
 import { Post } from './fx/post'
 import { Sky } from './fx/sky'
-import { makeLaunchStar, makeOrb, makeSingularity } from './fx/shapes'
+import { makeLaunchStar, makeOrb, makeShockRing, makeSingularity } from './fx/shapes'
 import { Sound } from './audio'
 import { Input } from './input'
 import { Overlay } from './overlay'
@@ -68,6 +69,10 @@ const right = new Vector3()
 const camUp = new Vector3()
 const camFwd = new Vector3()
 const loopVerts: Vector3[] = Array.from({ length: 800 }, () => new Vector3())
+/** How far the comet can drift sideways off its flight path; a pointer at the screen's edge is the full reach. */
+const FLIGHT_REACH = 8
+/** No damage for this long after landing on a world. */
+const LANDING_GRACE = 2
 
 export class Game {
   readonly renderer: WebGLRenderer
@@ -88,6 +93,8 @@ export class Game {
   readonly particles = new Particles(6000)
   private star = makeLaunchStar()
   private singularityView = makeSingularity()
+  private novaRing = makeShockRing()
+  private readonly novaCam = new Vector3()
 
   private mode: Mode_ = 'title'
   private paused = false
@@ -166,8 +173,8 @@ export class Game {
       this.scene.add(c.group, c.halo, c.chevron)
       return c
     })
-    const trailColor = new Color(...PALETTE.trail).multiplyScalar(2)
-    const head = new Color(0.8, 1.3, 2.2)
+    const trailColor = new Color(...PALETTE.trail).multiplyScalar(1.6)
+    const head = new Color(0.6, 1.0, 2.0)
     this.trails = [
       new Trail(trailColor, head),
       new Trail(new Color(0.3, 1.6, 1.4), head),
@@ -184,6 +191,8 @@ export class Game {
     this.star.group.add(this.star.beam)
     this.singularityView.group.visible = false
     this.scene.add(this.singularityView.group)
+    this.novaRing.visible = false
+    this.scene.add(this.novaRing)
 
     this.overlay = new Overlay(overlayRoot)
     this.input = new Input(canvas)
@@ -401,8 +410,12 @@ export class Game {
     // Singularity lensing
     if (this.singularity) {
       const s = this.singularity
-      tA.copy(s.n).multiplyScalar(s.body.radius + 1.2).add(s.body.center).project(cam)
-      this.post.lens.set(tA.x * 0.5 + 0.5, tA.y * 0.5 + 0.5, tA.z < 1 ? s.strength * Math.min(1, s.life) : 0)
+      const at = this.surfacePoint(s.body, s.n, 1.2, tA)
+      // The shadow's radius on screen, as a fraction of the screen height.
+      const dist = at.distanceTo(cam.position)
+      const rs = (1.1 * Math.min(1, s.life, (6.5 - s.life) * 3)) / (dist * Math.tan((cam.fov * Math.PI) / 360)) * 0.5
+      at.project(cam)
+      this.post.lens.set(at.x * 0.5 + 0.5, at.y * 0.5 + 0.5, at.z < 1 ? Math.max(0, rs) : 0)
     } else this.post.lens.z = 0
     const chronoK = Math.min(1, this.chrono)
     const blazeK = this.blaze > 0 ? Math.min(1, this.blaze) : 0
@@ -577,7 +590,7 @@ export class Game {
       if (v.state === 'rumble') {
         if (Math.random() < dt * 30) this.particles.fountain(p, v.n, 1, 1.2, 0.4, 0.1, 4, 0.5, 0.6, 0.35, body)
       } else {
-        this.particles.fountain(p, v.n, Math.ceil(dt * 260), 2.6, 0.9 + Math.random() * 0.6, 0.15, 24, 0.22, 1.2, 0.5, body)
+        this.particles.fountain(p, v.n, Math.ceil(dt * 110), 1.8, 0.45 + Math.random() * 0.45, 0.08, 19, 0.42, 1.2, 0.32, body)
       }
     }
   }
@@ -666,7 +679,7 @@ export class Game {
     const c = this.comet
     for (let i = 0; i < 2; i++) {
       const k = this.clones[i]
-      tQ.setFromAxisAngle(this.prismAxis, ((i === 0 ? 1 : -1) * Math.PI * 2) / 3)
+      tQ.setFromAxisAngle(this.prismAxis, ((i === 0 ? 1 : -1) * 5.5) / c.body!.radius)
       k.body = c.body
       k.n.copy(c.n).applyQuaternion(tQ)
       k.facing.copy(c.facing).applyQuaternion(tQ)
@@ -848,7 +861,7 @@ export class Game {
       }
       if (Math.abs(air - e.alt) > 1.1) continue
       const d = c.n.angleTo(e.n) * body.radius
-      if (d > PLAYER.radius + e.def.radius * 0.85) continue
+      if (d > PLAYER.radius + e.def.radius * 0.75) continue
       if (e.kind === 'gem') {
         this.swarm.capture(e, c.n)
         this.score += SCORE.gem * this.stats.mult
@@ -907,6 +920,7 @@ export class Game {
   }
 
   private die() {
+    if (this.mode !== 'play') return
     this.mode = 'dying'
     this.stateTimer = 0
     this.slow = 0.25
@@ -1111,12 +1125,15 @@ export class Game {
       case 'nova': this.nova(o.body, c.grounded ? c.n : o.n); break
       case 'singularity': {
         this.singularity = { body: o.body, n: o.n.clone(), life: 6.5, strength: 1 }
+        o.body.addRing(o.n, { color: new Color(1.4, 0.6, 3), angle: 4 / o.body.radius, speed: 0, width: 0.04, life: 6.5, intensity: 2 })
         this.sound.nova(false)
+        this.rig.shake(0.4)
         break
       }
       case 'prism': {
+        // Two copies of the comet, one either side, turned rigidly about the planet's centre.
         this.prism = 12
-        anyTangent(c.n, this.prismAxis)
+        this.prismAxis.copy(c.facing)
         this.trails[1].reset(c.body)
         this.trails[2].reset(c.body)
         break
@@ -1235,7 +1252,7 @@ export class Game {
       const k = Math.min(1, s.life, (6.5 - s.life) * 3)
       sv.group.position.copy(this.surfacePoint(s.body, s.n, 1.2))
       sv.group.quaternion.setFromUnitVectors(tB.set(0, 1, 0), s.n)
-      sv.group.scale.setScalar(Math.max(0.01, k))
+      sv.group.scale.setScalar(Math.max(0.01, k) * (1.3 + Math.sin(this.time * 7) * 0.06))
       sv.disc.rotation.z = this.time * 3
       sv.discMat.uniforms.uTime.value = this.time
     }
@@ -1265,6 +1282,9 @@ export class Game {
     this.mode = 'launch'
     this.launchT = 0
     this.launchOn = false
+    this.star.group.visible = false
+    this.star.halo.visible = false
+    this.overlay.pointArrow(false)
     world.lit = true
     this.summaryStats.worlds++
     const cov = world.coverage()
@@ -1365,13 +1385,13 @@ export class Game {
     let tx: number
     let ty: number
     if (p) {
-      tx = (p.x / window.innerWidth - 0.5) * 2 * 8
+      tx = (p.x / window.innerWidth - 0.5) * 2 * FLIGHT_REACH
       ty = -(p.y / window.innerHeight - 0.5) * 2 * 4
     } else {
       tx = f.offset.x + this.input.turn * 14 * dt
       ty = f.offset.y + this.input.lift * 10 * dt
     }
-    tx = Math.max(-8, Math.min(8, tx))
+    tx = Math.max(-FLIGHT_REACH, Math.min(FLIGHT_REACH, tx))
     ty = Math.max(-4, Math.min(4, ty))
     const k = 1 - Math.exp(-dt * 6)
     f.offset.x += (tx - f.offset.x) * k
@@ -1385,23 +1405,21 @@ export class Game {
       this.gainFlux(v)
       this.score += 5 * this.stats.mult
     })
-    // Exhaust
-    for (let i = 0; i < 4; i++) {
-      tC.copy(tA).multiplyScalar(-8 - Math.random() * 6)
-      tC.x += (Math.random() - 0.5) * 3
-      tC.y += (Math.random() - 0.5) * 3
-      tC.z += (Math.random() - 0.5) * 3
-      this.particles.emit(c.pos, tC, 0.6, 1, 2.6, 0.5, 0.45, 1.5)
+    // Exhaust: moving almost as fast as the comet, so it streaks behind it instead of flying into the lens.
+    const sp = f.speedNow()
+    for (let i = 0; i < 3; i++) {
+      tC.copy(tA).multiplyScalar(sp * (0.75 + Math.random() * 0.1))
+      tC.x += (Math.random() - 0.5) * 2
+      tC.y += (Math.random() - 0.5) * 2
+      tC.z += (Math.random() - 0.5) * 2
+      this.particles.emit(c.pos, tC, 0.5, 0.9, 2.4, 0.35, 0.22, 0.5)
     }
     // Boon orbs: take the one you fly through.
     if (!this.orbsResolved && f.orbIndex >= 0) {
       const at = f.orbIndex * FLIGHT_STEP
-      const cam = this.rig.camera
       this.flightOrbs.forEach((o, i) => {
-        tC.copy(o.pos).project(cam)
-        const vis = tC.z < 1 && f.time < at
         const near = Math.abs(o.x - f.offset.x) < 2.75
-        this.overlay.label(i, vis, (tC.x * 0.5 + 0.5) * window.innerWidth, (-tC.y * 0.5 + 0.5) * window.innerHeight, o.boon.name, o.boon.text, o.boon.color, near)
+        this.overlay.label(i, f.time < at, 0.5 + o.x / (2 * FLIGHT_REACH), o.boon.name, o.boon.text, o.boon.color, near)
       })
       if (f.time >= at) {
         this.orbsResolved = true
@@ -1462,6 +1480,7 @@ export class Game {
     this.gemTimer = 9
     this.powerTimer = 5
     this.flux = Math.max(this.flux, this.stats.fluxStart)
+    this.invulnerable = Math.max(this.invulnerable, LANDING_GRACE)
     this.mode = 'play'
     this.stateTimer = 0
     // Impact
@@ -1490,36 +1509,61 @@ export class Game {
     sys.sunMat.uniforms.uHeat.value = 0
     const bonus = SCORE.supernova * (sys.index + 1)
     this.score += bonus
-    this.post.flash = 1.4
+    // Pull back to watch the sun go.
+    const out = tA.copy(this.comet.pos).sub(sys.sunPos).normalize()
+    this.novaCam.copy(sys.sunPos).addScaledVector(out, sys.sunRadius * 11).add(tB.set(0, sys.sunRadius * 2.5, 0))
+    this.rig.jumpTo(this.novaCam, sys.sunPos, tB.set(0, 1, 0))
+    this.comet.group.visible = false
+    this.comet.halo.visible = false
+    this.novaRing.visible = true
+    this.novaRing.position.copy(sys.sunPos)
+    const hue = sys.sunMat.uniforms.uColor.value as Color
+    for (let i = 0; i < 3; i++) {
+      this.particles.burst(sys.sunPos, 160, hue.r * 2, hue.g * 2, hue.b * 2, 140 + i * 70, 2.4, 2.4 + i)
+    }
+    this.particles.burst(sys.sunPos, 140, 1.6, 1.8, 2.4, 300, 1.6, 2)
+    this.post.flash = 0.35
     this.post.flashCol.setRGB(1, 0.95, 0.85)
-    this.post.ca = 2
-    this.post.bloomBoost = 3
+    this.post.ca = 1.5
+    this.post.bloomBoost = 0.6
     this.rig.shake(1)
     this.sound.nova(true)
-    this.overlay.showCard('SUPERNOVA', `+${bonus.toLocaleString('en-US')}`, '#ffffff', 2600)
-    this.particles.burst(this.comet.pos, 400, 3, 2.4, 1.6, 40, 2, 1.2)
+    this.overlay.showCard('SUPERNOVA', `+${bonus.toLocaleString('en-US')}`, '#ffffff', 2400)
   }
 
   private updateNova(dt: number) {
     const sys = this.system
     const k = this.stateTimer
-    sys.sunMat.uniforms.uHeat.value = Math.min(1, k * 2)
-    sys.sun.scale.setScalar(1 + k * 3)
-    this.post.flash = Math.max(this.post.flash, 1.2 - k * 0.4)
+    sys.sunMat.uniforms.uHeat.value = Math.min(1, k * 1.2)
+    sys.sun.scale.setScalar(1 + (1 - Math.exp(-k * 2.5)) * 1.7)
+    const ring = this.novaRing
+    ring.scale.setScalar(sys.sunRadius * 2 + k * 520)
+    ring.quaternion.copy(this.rig.camera.quaternion)
+    const ringU = (ring.material as ShaderMaterial).uniforms
+    ringU.uA.value = Math.max(0, 1 - k / 1.9) * 1.3
+    ;(ringU.uColor.value as Color).copy(sys.sunMat.uniforms.uColor.value as Color).multiplyScalar(2.2)
+    this.rig.jumpTo(this.novaCam, sys.sunPos, tB.set(0, 1, 0))
+    this.rig.shake(dt * 0.8)
     this.particles.update(dt, null, 0, () => {})
-    this.rig.flight(dt, this.comet.pos, tA.copy(sys.sunPos).sub(this.comet.pos).normalize(), tB.set(0, 1, 0))
-    if (k > 1.6) {
+    if (k > 1.25) {
+      this.post.flash = Math.max(this.post.flash, ((k - 1.25) / 0.55) * 1.5)
+      this.post.flashCol.setRGB(1, 0.97, 0.92)
+    }
+    if (k > 1.8) {
       // The next system, harder.
+      ring.visible = false
       this.resetSystem(sys.index + 1)
       this.swarm.clearBody(null)
       this.particles.clear()
       this.clearPowers()
       this.worldIdx = 0
+      this.comet.group.visible = true
+      this.comet.halo.visible = true
       const body = this.system.worlds[0].bodies[0]
       const from = tA.copy(this.system.sunPos).add(tB.copy(body.center).sub(this.system.sunPos).normalize().multiplyScalar(this.system.sunRadius + 30))
       this.beginFlight(from, tB.copy(body.center).sub(from).normalize().multiplyScalar(26), { center: body.center, radius: body.radius, body }, true)
       this.rig.jumpTo(tC.copy(from).addScaledVector(tB.normalize(), -12), body.center, this.flight!.ups[0])
-      this.post.flash = 1
+      this.post.flash = 1.4
     }
   }
 
