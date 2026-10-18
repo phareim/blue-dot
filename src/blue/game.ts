@@ -98,6 +98,7 @@ export class Game {
 
   private mode: Mode_ = 'title'
   private paused = false
+  private resizeObserver: ResizeObserver
   private raf = 0
   private last = 0
   private time = 0
@@ -200,6 +201,10 @@ export class Game {
     this.input.onKey = (code) => this.onKey(code)
     window.addEventListener('resize', this.resize)
     document.addEventListener('visibilitychange', this.visibility)
+    // Safari can run this before the stylesheet applies (the canvas is still 300×150), and its toolbars
+    // change the height without a window resize: follow the canvas's own box.
+    this.resizeObserver = new ResizeObserver(() => this.resize())
+    this.resizeObserver.observe(canvas)
     this.resize()
     this.titleScene()
     this.last = performance.now()
@@ -208,6 +213,7 @@ export class Game {
 
   dispose() {
     cancelAnimationFrame(this.raf)
+    this.resizeObserver.disconnect()
     window.removeEventListener('resize', this.resize)
     document.removeEventListener('visibilitychange', this.visibility)
     this.input.dispose()
@@ -874,10 +880,32 @@ export class Game {
         this.kill(e, 'SMASH')
         continue
       }
+      if (!e.def.harmful) {
+        this.bump(e)
+        continue
+      }
       if (this.invulnerable > 0) continue
       this.damage(e)
       break
     }
+  }
+
+  /** Mites are bumpers: the comet glances off and the mite goes flying. Costs the chain, not a heart. */
+  private bump(e: Enemy) {
+    const c = this.comet
+    const body = c.body!
+    if (!dirTo(c.n, e.n, tA)) return
+    this.swarm.fling(e, 8, tB.copy(tA).multiplyScalar(11))
+    e.flash = 1
+    const into = c.vt.dot(tA)
+    if (into > 0) c.vt.addScaledVector(tA, -1.8 * into)
+    if (this.chain > 1) this.callout('CHAIN LOST', c.pos, '#ff8fc8', 16)
+    this.chain = 0
+    this.chainTimer = 0
+    this.rig.shake(0.18)
+    this.sound.land(0.7)
+    this.sound.pop()
+    this.particles.burst(this.surfacePoint(body, e.n, 0.3), 14, 2.4, 0.5, 1.8, 6, 0.35, 0.3)
   }
 
   private kill(e: Enemy, why: string) {
@@ -1047,6 +1075,8 @@ export class Game {
 
   private pickKind(): EnemyKind {
     const mix = enemyMix(this.system.index, this.worldIdx)
+    // The first world is only mites, until you linger.
+    if (mix.length === 1 && this.heat > 20 && Math.random() < 0.2) return 'hunter'
     let total = 0
     for (const [, w] of mix) total += w
     let r = Math.random() * total

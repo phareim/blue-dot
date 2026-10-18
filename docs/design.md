@@ -53,14 +53,14 @@ Each world bends the physics in its own way. The first system is Azure, Ember, R
 
 | Enemy | Look | Behaviour |
 |---|---|---|
-| Mite | Magenta diamond | Wanders; drifts toward you when close. Comes in flocks |
+| Mite | Magenta diamond | Wanders; drifts toward you when close. Comes in flocks. A bumper: hitting one knocks it flying and bounces you off, and costs your chain |
 | Hunter | Orange chevron | Chases you |
 | Shear | Red shuriken | Hunts your trail and cuts it |
 | Spore | Lime pinwheel | Circles; bursts into a gem when caught |
 | Warden | Violet hexagon | Pulses a ring that cuts any trail it reaches |
 | Gem | Gold star | Harmless; flees. Worth 250 and a lot of flux |
 
-Touching anything but a gem costs a heart, unless you are in Blaze. Jumping clears them.
+The warm-coloured enemies (hunter, shear, spore, warden) cost a heart on contact, unless you are in Blaze. Jumping clears them. The first world has only mites, so it is safe to learn on, until hunters start drifting in after 20 s. From the second world on, the warm-coloured enemies join the mix.
 
 ## Power-ups (on the ground) and boons (in flight)
 

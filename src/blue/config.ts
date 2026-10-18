@@ -44,7 +44,8 @@ export interface EnemyDef {
 }
 
 export const ENEMIES: Record<EnemyKind, EnemyDef> = {
-  mite: { color: [1.0, 0.18, 0.72], radius: 0.42, speed: 0.34, turn: 1.6, flux: 0.025, harmful: true },
+  // Mites only bump the comet away (see Game.bump); the warm-coloured kinds cost a heart.
+  mite: { color: [1.0, 0.18, 0.72], radius: 0.42, speed: 0.34, turn: 1.6, flux: 0.025, harmful: false },
   hunter: { color: [1.0, 0.42, 0.06], radius: 0.48, speed: 0.6, turn: 2.3, flux: 0.04, harmful: true },
   shear: { color: [1.0, 0.08, 0.16], radius: 0.46, speed: 0.5, turn: 2.6, flux: 0.05, harmful: true },
   spore: { color: [0.5, 1.0, 0.12], radius: 0.55, speed: 0.3, turn: 1.0, flux: 0.06, harmful: true },

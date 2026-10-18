@@ -14,6 +14,8 @@ mkdirSync(out, { recursive: true })
 const SIZES = {
   desktop: { width: 1280, height: 800, dpr: 1, mobile: false },
   phone: { width: 390, height: 844, dpr: 2, mobile: true },
+  // iPhone Safari with its toolbars showing.
+  safari: { width: 390, height: 664, dpr: 2, mobile: true },
   small: { width: 375, height: 667, dpr: 2, mobile: true },
 }
 
