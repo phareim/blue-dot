@@ -14,6 +14,7 @@ import {
   PLAYER,
   POWERS,
   SCORE,
+  TOUCH,
   TRAIL,
   baseStats,
   enemyMix,
@@ -144,6 +145,8 @@ export class Game {
   private stateTimer = 0
   private waveSeen = -1
   private summaryStats = { captured: 0, biggestLoop: 0, worlds: 0, started: 0 }
+  /** The finger's spin: the heading on screen (x right, y down), whether it is set, and movement not yet past the dead zone. */
+  private spin = { x: 0, y: 0, on: false, ax: 0, ay: 0 }
 
   constructor(private canvas: HTMLCanvasElement, overlayRoot: HTMLElement, store: Store) {
     this.store = store
@@ -514,10 +517,43 @@ export class Game {
     this.heat += dt
     this.timers(dt)
 
-    // Steering: toward the pointer on screen, or the keyboard.
+    // Steering: toward the mouse, by spinning the planet with a finger, or the keyboard.
     let dir: Vector3 | null = null
     const p = this.input.pointer
-    if (p) {
+    const drag = this.input.consumeDrag()
+    const s = this.spin
+    if (p && this.input.pointerKind === 'touch') {
+      // The ground follows the finger, so the comet heads against the finger's movement. The heading is kept
+      // on screen, not on the sphere, so it stays put while the finger rests however far the comet travels.
+      const leak = Math.exp(-dt / TOUCH.leak)
+      s.ax = s.ax * leak + drag.x
+      s.ay = s.ay * leak + drag.y
+      const l = Math.hypot(s.ax, s.ay)
+      if (l > TOUCH.deadPx) {
+        const k = s.on ? 1 - Math.exp(-dt / TOUCH.smooth) : 1
+        const x = s.x + (-s.ax / l - s.x) * k
+        const y = s.y + (-s.ay / l - s.y) * k
+        const m = Math.hypot(x, y)
+        if (m > 1e-3) {
+          s.x = x / m
+          s.y = y / m
+          s.on = true
+        }
+        s.ax = 0
+        s.ay = 0
+      }
+      if (s.on) {
+        dir = tB.copy(right).multiplyScalar(s.x).addScaledVector(camUp, -s.y)
+        toTangent(dir, c.n)
+        if (dir.lengthSq() > 1e-8) dir.normalize()
+        else dir = null
+      }
+    } else {
+      s.on = false
+      s.ax = 0
+      s.ay = 0
+    }
+    if (p && this.input.pointerKind === 'mouse') {
       tA.copy(c.pos).project(this.rig.camera)
       const sx = (tA.x * 0.5 + 0.5) * window.innerWidth
       const sy = (-tA.y * 0.5 + 0.5) * window.innerHeight
@@ -530,7 +566,7 @@ export class Game {
         else dir = null
       }
     }
-    const turnRate = PLAYER.turn * stats.turn * (this.blaze > 0 ? 1.15 : 1)
+    const turnRate = PLAYER.turn * stats.turn * (this.blaze > 0 ? 1.15 : 1) * (s.on ? TOUCH.turn : 1)
     c.steer(dt, dir, this.input.turn, turnRate)
 
     if (this.input.consumeJump()) {
@@ -1421,6 +1457,8 @@ export class Game {
       tx = f.offset.x + this.input.turn * 14 * dt
       ty = f.offset.y + this.input.lift * 10 * dt
     }
+    // Flight reads where the finger is; its movement only steers on the ground.
+    this.input.consumeDrag()
     tx = Math.max(-FLIGHT_REACH, Math.min(FLIGHT_REACH, tx))
     ty = Math.max(-4, Math.min(4, ty))
     const k = 1 - Math.exp(-dt * 6)
@@ -1503,6 +1541,9 @@ export class Game {
     if (facing.lengthSq() < 1e-4) anyTangent(n, facing)
     c.place(body, n, facing.normalize())
     c.vt.copy(c.facing).multiplyScalar(PLAYER.speed)
+    this.spin.on = false
+    this.spin.ax = 0
+    this.spin.ay = 0
     for (const t of this.trails) t.reset(body)
     this.heat = 0
     this.spawnTimer = 1.2

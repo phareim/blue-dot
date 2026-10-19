@@ -12,6 +12,18 @@ export const PLAYER = {
   blazeTime: 6,
 }
 
+/** Touch spins the planet: the comet heads against the finger's movement and keeps that heading while the finger rests. */
+export const TOUCH = {
+  /** Turn rate relative to the mouse and keyboard's. */
+  turn: 1,
+  /** Finger movement shorter than this, in CSS pixels, leaves the heading alone: a resting finger jitters. */
+  deadPx: 3,
+  /** Movement under the dead zone fades over this many seconds, so jitter never adds up to a swipe. */
+  leak: 0.15,
+  /** Smoothing of the swipe direction, in seconds. */
+  smooth: 0.06,
+}
+
 export const TRAIL = {
   spacing: 0.26,
   length: 30,
