@@ -1,6 +1,6 @@
 # Blue: design
 
-Current state as of 2026-10-19. Live at https://blue.phareim.no.
+Current state as of 2026-10-20. Live at https://blue.phareim.no.
 
 Blue is a fast solo arcade game. You are a blue comet skimming tiny planets that have their own gravity. Your trail is a lasso: cross it, and everything inside the loop is caught, crushed and painted over in glowing blue. Paint enough of a world and it ignites. A launch star appears; reach it and you are slung through space to the next world, steering into one of three boons on the way. Light every world in the system and you dive into the sun. It goes supernova and throws you into a harder system. Three hearts; the run ends when they are gone.
 
@@ -16,7 +16,7 @@ The brief was to mash a wide set of games into something fresh. Each piece below
 | Super Mario Galaxy | Tiny round planets with their own gravity, launch stars, other worlds hanging in the sky |
 | Gravity Ghost | Flights between planets on real gravity, bending around bodies on the way |
 | Geometry Wars (Pacifism mode) | Neon vector swarms, score that grows with the square of what you catch at once, particle storms |
-| slither.io, Tron | You never stop moving; you steer by pointing |
+| slither.io, Tron | You never stop moving; you steer by pointing (on desktop; a phone spins the planet) |
 | Vampire Survivors, Hades | Swarms that keep thickening; pick one of three boons between rooms |
 | Star Fox, Rez | Rail flight where you steer into what you want; Rez's music building with play |
 | Peggle (Extreme Fever), Balatro | Absurd fanfare for big plays: hit-stop, slow motion, a rising chord, MEGA LOOP cards |
@@ -76,7 +76,7 @@ Boons last the whole run. There are twelve, listed in `src/blue/config.ts`. Exam
 
 ## Controls
 
-- **Phone:** swipe the planet to spin it under the comet. The ground follows the finger, so the comet heads the opposite way of the swipe (swipe left, it runs right), and it keeps that heading while the finger rests or lifts. A quick tap, or a second finger, jumps. In flight, the finger's position across the screen places the comet. Spin tuning is `TOUCH` in `config.ts`.
+- **Phone:** the planet is a heavy ball you spin with a finger, and the comet's speed is the spin. The ground follows the finger, so the comet goes the opposite way of the swipe (swipe left, it runs right). A harder swipe spins it faster, up to twice cruise speed. Lifted, the planet coasts and friction slows it to half cruise speed; a resting finger brakes it, and it stays slow until the next swipe. Ice (Rime) grips, brakes and slows less. In the air a swipe steers, as the mouse does. A quick tap, or a second finger, jumps. In flight, the finger's position across the screen places the comet. Spin tuning is `TOUCH` in `config.ts`.
 - **Desktop:** the comet heads toward the mouse cursor, or turn with A/D or the arrows. Click or Space jumps. W/S drift up and down in flight. M mutes, Esc or P pauses.
 
 ## How it is built
@@ -102,7 +102,7 @@ The paint is a 512×256 mask per body, read by the planet shader. Coverage is we
 ## Checking it
 
 - `pnpm test`: the geometry tests.
-- `scripts/lab.mjs`: title, intro, landing and one loop, at desktop and phone sizes. On phone sizes it checks that an 8 px wobble stays a tap, swipes left with a negative touch id, keeps the finger resting, checks the comet runs right, and circles the finger to close a loop. Taps can't be timed there: SwiftShader takes over a second between touchStart and touchEnd.
+- `scripts/lab.mjs`: title, intro, landing and one loop, at desktop and phone sizes. On phone sizes, with negative touch ids, it checks that an 8 px wobble stays a tap; that slow, medium and hard swipes from a standstill give three speeds; that the spin coasts on, heading right, after a left swipe lifts; that a resting finger brakes it; and that circling the finger closes a loop. On the Mac's GPU, 2026-10-20: finger 95, 285, 485 px/s gave 1.5, 5.0, 6.9 units/s. Taps can't be timed there: SwiftShader takes over a second between touchStart and touchEnd.
 - `scripts/tour.mjs`: forces a whole run (all four worlds, every flight, the supernova, system 2, each power-up, game over) and logs frame rate per stage.
 - `scripts/mac-tour.sh`: runs the tour on the Mac's GPU.
 

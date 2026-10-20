@@ -1,5 +1,5 @@
 // Keyboard, mouse and touch. The comet heads toward the mouse cursor, or A/D or the arrows turn it.
-// On a touch screen a dragging finger spins the planet: the game reads the finger's movement, not its spot.
+// On a touch screen the finger spins the planet: the game reads the finger's movement, not its spot.
 // A quick tap, a second finger, Space or a right click jumps.
 
 const TAP_MS = 220
@@ -67,6 +67,11 @@ export class Input {
     if (this.keys.has('ArrowUp') || this.keys.has('KeyW')) t += 1
     if (this.keys.has('ArrowDown') || this.keys.has('KeyS')) t -= 1
     return t
+  }
+
+  /** The steering finger is down and can no longer be a tap: it has swiped, or rested past TAP_MS. */
+  get held(): boolean {
+    return this.steerId !== null && (this.moved || performance.now() - this.downAt >= TAP_MS)
   }
 
   consumeJump(): boolean {

@@ -12,21 +12,38 @@ export const PLAYER = {
   blazeTime: 6,
 }
 
-/** Touch spins the planet: the comet heads against the finger's movement and keeps that heading while the finger rests. */
+/**
+ * Touch spins the planet like a heavy ball. The comet's velocity over the ground is the spin: a moving finger drags it
+ * toward the finger's own velocity (the ground follows the finger, so the comet goes the other way), a resting finger
+ * brakes it, and a free planet coasts while friction takes it down to an idle drift. Speeds are in cruise speeds
+ * (PLAYER.speed with Overclock and Blaze), rates per second.
+ */
 export const TOUCH = {
-  /** Turn rate relative to the mouse and keyboard's. */
-  turn: 1,
-  /** Finger movement shorter than this, in CSS pixels, leaves the heading alone: a resting finger jitters. */
-  deadPx: 3,
-  /** Movement under the dead zone fades over this many seconds, so jitter never adds up to a swipe. */
-  leak: 0.15,
-  /** Smoothing of the swipe direction, in seconds. */
-  smooth: 0.06,
+  /** Ground speed per finger speed, measured at the comet's depth. Under 1, the finger slips on a heavy ball, so a medium swipe makes about cruise. */
+  gain: 0.4,
+  /** Top spin; a hard flick nears it softly. */
+  max: 2,
+  /** How fast a moving finger brings the spin to its own velocity. Lower is a heavier planet. */
+  grip: 6,
+  /** How fast a resting finger brakes the spin. */
+  brake: 3,
+  /** How fast a free planet loses spin. */
+  friction: 0.4,
+  /** Friction stops here. 0 is pure physics: the planet coasts to a halt. A braking finger can go below it, and the spin stays there until the next swipe. */
+  idle: 0.5,
+  /** Finger speed under this, in CSS pixels a second, counts as resting. */
+  restPx: 40,
+  /** Smoothing of the finger's velocity, in seconds. */
+  smooth: 0.05,
+  /** The world grip these numbers are for. Slipperier worlds (Rime) grip, brake and lose spin more slowly. */
+  refGrip: 12,
+  /** Turn rate of a swipe in the air, where the planet can't carry the comet, relative to the mouse and keyboard's. */
+  airTurn: 1,
 }
 
 export const TRAIL = {
   spacing: 0.26,
-  length: 30,
+  length: 38,
   /** The head closes a loop when it comes this close to an old trail point. */
   snap: 0.8,
   width: 0.36,

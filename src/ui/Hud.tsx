@@ -40,7 +40,7 @@ const SoundIcon = ({ muted }: { muted: boolean }) => (
 function Controls({ touch }: { touch: boolean }) {
   return touch ? (
     <ul className="controls">
-      <li><b>Swipe the planet</b> to spin it under the comet</li>
+      <li><b>Flick the planet</b> to spin it; rest a finger to brake</li>
       <li><b>Tap</b> or a second finger to jump</li>
       <li><b>Cross your own trail</b> to close a loop</li>
     </ul>

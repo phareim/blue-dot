@@ -145,8 +145,10 @@ export class Game {
   private stateTimer = 0
   private waveSeen = -1
   private summaryStats = { captured: 0, biggestLoop: 0, worlds: 0, started: 0 }
-  /** The finger's spin: the heading on screen (x right, y down), whether it is set, and movement not yet past the dead zone. */
-  private spin = { x: 0, y: 0, on: false, ax: 0, ay: 0 }
+  /** Touch: the finger's smoothed velocity on screen (px/s, y down), and whether touch is steering (the finger may be up). */
+  private spin = { ux: 0, uy: 0, active: false }
+  /** The last frame's real time step, before slow motion and hit-stop. */
+  private rawDt = 0
 
   constructor(private canvas: HTMLCanvasElement, overlayRoot: HTMLElement, store: Store) {
     this.store = store
@@ -161,6 +163,7 @@ export class Game {
     this.maxDpr = Math.min(window.devicePixelRatio || 1, touch ? 1.6 : 1.75)
     this.dpr = this.maxDpr
     this.store.set({ touch })
+    this.spin.active = touch
 
     this.scene.add(this.sky.group)
     this.scene.add(this.sky.streaks)
@@ -352,6 +355,7 @@ export class Game {
     this.raf = requestAnimationFrame(this.frame)
     const raw = Math.min(0.05, Math.max(0, (now - this.last) / 1000))
     this.last = now
+    this.rawDt = raw
     this.trackQuality(raw)
     if (this.paused) {
       this.render(0)
@@ -520,40 +524,29 @@ export class Game {
     // Steering: toward the mouse, by spinning the planet with a finger, or the keyboard.
     let dir: Vector3 | null = null
     const p = this.input.pointer
-    const drag = this.input.consumeDrag()
     const s = this.spin
-    if (p && this.input.pointerKind === 'touch') {
-      // The ground follows the finger, so the comet heads against the finger's movement. The heading is kept
-      // on screen, not on the sphere, so it stays put while the finger rests however far the comet travels.
-      const leak = Math.exp(-dt / TOUCH.leak)
-      s.ax = s.ax * leak + drag.x
-      s.ay = s.ay * leak + drag.y
-      const l = Math.hypot(s.ax, s.ay)
-      if (l > TOUCH.deadPx) {
-        const k = s.on ? 1 - Math.exp(-dt / TOUCH.smooth) : 1
-        const x = s.x + (-s.ax / l - s.x) * k
-        const y = s.y + (-s.ay / l - s.y) * k
-        const m = Math.hypot(x, y)
-        if (m > 1e-3) {
-          s.x = x / m
-          s.y = y / m
-          s.on = true
-        }
-        s.ax = 0
-        s.ay = 0
-      }
-      if (s.on) {
-        dir = tB.copy(right).multiplyScalar(s.x).addScaledVector(camUp, -s.y)
+    const finger = p !== null && this.input.pointerKind === 'touch'
+    if (finger) s.active = true
+    else if (p || this.input.turn !== 0) s.active = false
+    // The finger's velocity on screen, in CSS pixels per second of real time: slow motion doesn't speed the finger up.
+    const drag = this.input.consumeDrag()
+    const raw = Math.max(this.rawDt, 1e-3)
+    const ks = 1 - Math.exp(-raw / TOUCH.smooth)
+    s.ux += ((finger ? drag.x / raw : 0) - s.ux) * ks
+    s.uy += ((finger ? drag.y / raw : 0) - s.uy) * ks
+    const moving = finger && Math.hypot(s.ux, s.uy) > TOUCH.restPx
+    const speed = PLAYER.speed * stats.speed * (this.blaze > 0 ? PLAYER.blazeSpeed : 1)
+    if (s.active && c.grounded) {
+      this.spinPlanet(dt, c, body, speed, moving)
+    } else if (s.active) {
+      // In the air the planet can't carry the comet: a swipe steers, as the mouse would.
+      if (moving) {
+        dir = tB.copy(right).multiplyScalar(-s.ux).addScaledVector(camUp, s.uy)
         toTangent(dir, c.n)
         if (dir.lengthSq() > 1e-8) dir.normalize()
         else dir = null
       }
-    } else {
-      s.on = false
-      s.ax = 0
-      s.ay = 0
-    }
-    if (p && this.input.pointerKind === 'mouse') {
+    } else if (p) {
       tA.copy(c.pos).project(this.rig.camera)
       const sx = (tA.x * 0.5 + 0.5) * window.innerWidth
       const sy = (-tA.y * 0.5 + 0.5) * window.innerHeight
@@ -566,7 +559,7 @@ export class Game {
         else dir = null
       }
     }
-    const turnRate = PLAYER.turn * stats.turn * (this.blaze > 0 ? 1.15 : 1) * (s.on ? TOUCH.turn : 1)
+    const turnRate = PLAYER.turn * stats.turn * (this.blaze > 0 ? 1.15 : 1) * (s.active ? TOUCH.airTurn : 1)
     c.steer(dt, dir, this.input.turn, turnRate)
 
     if (this.input.consumeJump()) {
@@ -583,10 +576,12 @@ export class Game {
       }
     }
 
-    const speed = PLAYER.speed * stats.speed * (this.blaze > 0 ? PLAYER.blazeSpeed : 1)
     if (c.grounded) {
       this.surfaceForces(dt, c, body)
-      if (c.grounded) c.groundStep(dt, speed, body.type.grip)
+      if (c.grounded) {
+        if (s.active) c.glide(dt)
+        else c.groundStep(dt, speed, body.type.grip)
+      }
     }
     if (!c.grounded) {
       const res = c.airStep(dt, world.bodies, (pp, out) => this.system.gravityAt(pp, out, world.bodies))
@@ -620,6 +615,37 @@ export class Game {
     this.ventFx(dt)
     this.rig.surface(dt, c.pos, c.n, c.facing, c.body!.radius)
     this.pointToStar()
+  }
+
+  /**
+   * Touch: the comet's velocity over the ground is the planet's spin, and the planet is heavy. A moving finger drags the
+   * spin toward its own velocity, a resting finger brakes it, and a free planet coasts until friction takes it to idle.
+   */
+  private spinPlanet(dt: number, c: Comet, body: Body, cruise: number, moving: boolean) {
+    const s = this.spin
+    const vt = c.vt
+    // Ice keeps the finger from biting, and the spin from dying.
+    const slip = Math.min(1, Math.max(0.3, body.type.grip / TOUCH.refGrip))
+    if (moving) {
+      // The ground follows the finger, so the comet goes against it. Pixels become ground units at the comet's depth.
+      const cam = this.rig.camera
+      const perPx = (2 * cam.position.distanceTo(c.pos) * Math.tan((cam.fov * Math.PI) / 360)) / window.innerHeight
+      const want = tA.copy(right).multiplyScalar(-s.ux).addScaledVector(camUp, s.uy)
+      toTangent(want, c.n)
+      const len = want.length()
+      const top = cruise * TOUCH.max
+      want.multiplyScalar(len > 1e-6 ? (top * Math.tanh((len * TOUCH.gain * perPx) / top)) / len : 0)
+      vt.lerp(want, 1 - Math.exp(-dt * TOUCH.grip * slip))
+    } else if (this.input.held) {
+      vt.multiplyScalar(Math.exp(-dt * TOUCH.brake * slip))
+    } else {
+      const sp = vt.length()
+      const idle = cruise * TOUCH.idle
+      if (sp > idle) vt.multiplyScalar(Math.max(idle / sp, Math.exp(-dt * TOUCH.friction * slip)))
+    }
+    toTangent(vt, c.n)
+    const sp = vt.length()
+    if (sp > 0.25) c.facing.copy(vt).divideScalar(sp)
   }
 
   /** Smoke from rumbling vents, fire from erupting ones. */
@@ -1541,9 +1567,8 @@ export class Game {
     if (facing.lengthSq() < 1e-4) anyTangent(n, facing)
     c.place(body, n, facing.normalize())
     c.vt.copy(c.facing).multiplyScalar(PLAYER.speed)
-    this.spin.on = false
-    this.spin.ax = 0
-    this.spin.ay = 0
+    this.spin.ux = 0
+    this.spin.uy = 0
     for (const t of this.trails) t.reset(body)
     this.heat = 0
     this.spawnTimer = 1.2
