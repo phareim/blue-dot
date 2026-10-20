@@ -75,16 +75,10 @@ export class Comet {
   }
 
   groundStep(dt: number, speed: number, grip: number) {
-    if (!this.body) return
-    const k = 1 - Math.exp(-grip * dt)
-    this.vt.lerp(tA.copy(this.facing).multiplyScalar(speed), k)
-    this.glide(dt)
-  }
-
-  /** Move over the ground with the velocity as it is. */
-  glide(dt: number) {
     const body = this.body
     if (!body) return
+    const k = 1 - Math.exp(-grip * dt)
+    this.vt.lerp(tA.copy(this.facing).multiplyScalar(speed), k)
     const sp = this.vt.length()
     if (sp > 1e-6) {
       tA.copy(this.vt).divideScalar(sp)

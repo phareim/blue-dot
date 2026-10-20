@@ -44,64 +44,24 @@ async function run(name, size) {
     log('after landing', JSON.stringify(before))
 
     if (size.mobile) {
-      // Touch spins a heavy planet. The ground follows the finger, so a swipe left runs the comet right; the spin
-      // keeps going after the finger lifts, a resting finger brakes it, and a harder swipe spins it faster.
+      // Touch drag: hold a finger right of the comet, a negative id, and check the comet turned toward it.
       const pos = await b.eval(`(() => { const g = window.blue; const v = g.comet.pos.clone().project(g.rig.camera); return { x: (v.x * 0.5 + 0.5) * innerWidth, y: (-v.y * 0.5 + 0.5) * innerHeight } })()`)
-      const heading = `(() => { const g = window.blue; const e = g.rig.camera.matrixWorld.elements; return g.comet.facing.x * e[0] + g.comet.facing.y * e[1] + g.comet.facing.z * e[2] })()`
-      const speed = 'window.blue.comet.vt.length()'
-      // A touch that wobbles 8 px is still a tap, not a swipe. (Whether it jumps can't be checked here:
-      // SwiftShader takes over a second between touchStart and touchEnd, past TAP_MS.)
-      await b.touch('touchStart', [{ x: pos.x + 60, y: pos.y + 200, id: -5 }])
-      await b.touch('touchMove', [{ x: pos.x + 66, y: pos.y + 205, id: -5 }])
-      await b.eval(gameWait(0.1, 20000))
-      const wobbleSwiped = await b.eval('window.blue.input.moved')
+      const fx = Math.min(size.width - 10, pos.x + 140)
+      const fy = pos.y
+      const headingBefore = await b.eval(`(() => { const g = window.blue; const e = g.rig.camera.matrixWorld.elements; return g.comet.facing.x * e[0] + g.comet.facing.y * e[1] + g.comet.facing.z * e[2] })()`)
+      await b.touch('touchStart', [{ x: fx, y: fy, id: -7 }])
+      await b.eval(gameWait(0.8, 40000))
+      await b.touch('touchMove', [{ x: fx, y: fy + 4, id: -7 }])
+      await b.eval(gameWait(0.4, 20000))
+      const headingAfter = await b.eval(`(() => { const g = window.blue; const e = g.rig.camera.matrixWorld.elements; return g.comet.facing.x * e[0] + g.comet.facing.y * e[1] + g.comet.facing.z * e[2] })()`)
       await b.touch('touchEnd', [])
-      log(`touch wobble: became a swipe ${wobbleSwiped} (${wobbleSwiped ? 'FAIL' : 'PASS'})`)
-      // Rest a finger until the planet has all but stopped, then swipe left by `step` px every 0.03 s of game time,
-      // eight times, from the right edge. Returns the finger speed the game saw at the end, in px/s.
-      const fy = Math.min(size.height - 30, pos.y + 160)
-      const swipe = async (step, id) => {
-        const x0 = size.width - 20
-        await b.touch('touchStart', [{ x: x0, y: fy, id }])
-        await b.eval(gameWait(0.8, 30000))
-        for (let i = 1; i <= 8; i++) {
-          await b.touch('touchMove', [{ x: x0 - i * step, y: fy, id }])
-          await b.eval(gameWait(0.03, 8000))
-        }
-        return b.eval('Math.hypot(window.blue.spin.ux, window.blue.spin.uy)')
-      }
-      // Analog: slow, medium and hard swipes from a standstill leave three different speeds.
-      const speeds = []
-      const fingers = []
-      for (const [step, id] of [[8, -11], [24, -12], [45, -13]]) {
-        fingers.push(await swipe(step, id))
-        await b.touch('touchEnd', [])
-        speeds.push(await b.eval(speed))
-      }
-      const analog = speeds[0] * 1.3 < speeds[1] && speeds[1] * 1.15 < speeds[2]
-      log(`touch analog: finger ${fingers.map((v) => Math.round(v)).join(', ')} px/s -> speed ${speeds.map((v) => v.toFixed(1)).join(', ')} (${analog ? 'PASS' : 'FAIL'})`)
-      // Momentum: the hard swipe's spin carries on with the finger up, still heading right.
-      await b.eval(gameWait(0.6, 30000))
-      const coast = await b.eval(speed)
-      const coastHeading = await b.eval(heading)
-      const coasting = coastHeading > 0.8 && coast > speeds[2] * 0.6
-      log(`touch coast: heading right ${coastHeading.toFixed(2)}, speed ${speeds[2].toFixed(1)} -> ${coast.toFixed(1)} 0.6 s after lifting (${coasting ? 'PASS' : 'FAIL'})`)
-      // Brake: a finger resting on the planet slows it.
-      await b.touch('touchStart', [{ x: pos.x, y: fy, id: -7 }])
-      await b.eval(gameWait(1.0, 40000))
-      const braked = await b.eval(speed)
-      await b.touch('touchEnd', [])
-      log(`touch brake: speed ${coast.toFixed(1)} -> ${braked.toFixed(1)} after a second of resting finger (${braked < coast * 0.3 ? 'PASS' : 'FAIL'})`)
-      // Draw a loop with the finger: circling it spins the planet in a circle, so the comet runs one too.
-      // The finger goes round at a fixed rate in game time, so the loop is the same size however slow the browser is.
-      const rate = 3.2
-      const t0 = await b.eval('window.blue.time')
+      log(`touch drag: screen-right component of heading ${headingBefore.toFixed(2)} -> ${headingAfter.toFixed(2)} (${headingAfter > 0.8 ? 'PASS' : 'FAIL'})`)
+      // Draw a loop with the finger: circle around the comet.
       await b.touch('touchStart', [{ x: pos.x, y: pos.y - 120, id: -3 }])
-      for (let spun = 0; spun < Math.PI * 2.4;) {
-        spun = Math.min(Math.PI * 2.4, ((await b.eval('window.blue.time')) - t0) * rate)
-        const a = -Math.PI / 2 + spun
+      for (let i = 0; i <= 24; i++) {
+        const a = -Math.PI / 2 + (i / 24) * Math.PI * 2.4
         await b.touch('touchMove', [{ x: pos.x + Math.cos(a) * 120, y: pos.y + Math.sin(a) * 120, id: -3 }])
-        await b.eval(gameWait(0.04, 8000))
+        await b.eval(gameWait(0.09, 8000))
       }
       await b.touch('touchEnd', [])
     } else {

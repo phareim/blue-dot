@@ -7,7 +7,7 @@ const tB = new Vector3()
 /**
  * The surface view looks almost straight down at the comet. Its screen-up vector is carried along the
  * sphere without turning with the comet, so a direction on screen stays the same direction on the ground:
- * that is what lets the comet steer toward the mouse, and keep a swipe's heading.
+ * that is what lets the comet steer toward a finger.
  */
 export class CamRig {
   readonly camera: PerspectiveCamera

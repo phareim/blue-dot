@@ -1,22 +1,15 @@
-// Keyboard, mouse and touch. The comet heads toward the mouse cursor, or A/D or the arrows turn it.
-// On a touch screen the finger spins the planet: the game reads the finger's movement, not its spot.
-// A quick tap, a second finger, Space or a right click jumps.
+// Keyboard, mouse and touch. The comet heads toward the pointer (mouse hover, or a held finger);
+// A/D or the arrows turn it. A quick tap, a second finger, Space or a right click jumps.
 
 const TAP_MS = 220
 const TAP_PX = 14
 
 export class Input {
   readonly keys = new Set<string>()
-  /** Screen position of the mouse or the steering finger, or null. */
+  /** Screen position the comet steers toward, or null. */
   pointer: { x: number; y: number } | null = null
   pointerKind: 'mouse' | 'touch' | null = null
-  /** How far the steering finger has swiped since the last `consumeDrag`, in CSS pixels. */
-  readonly drag = { x: 0, y: 0 }
   private steerId: number | null = null
-  private lastX = 0
-  private lastY = 0
-  private dragX = 0
-  private dragY = 0
   private downAt = 0
   private downX = 0
   private downY = 0
@@ -69,11 +62,6 @@ export class Input {
     return t
   }
 
-  /** The steering finger is down and can no longer be a tap: it has swiped, or rested past TAP_MS. */
-  get held(): boolean {
-    return this.steerId !== null && (this.moved || performance.now() - this.downAt >= TAP_MS)
-  }
-
   consumeJump(): boolean {
     const j = this.jumpQueued
     this.jumpQueued = false
@@ -87,20 +75,9 @@ export class Input {
     return p
   }
 
-  /** Take the finger's movement since the last call; `drag` holds it until the next. */
-  consumeDrag(): { x: number; y: number } {
-    this.drag.x = this.dragX
-    this.drag.y = this.dragY
-    this.dragX = 0
-    this.dragY = 0
-    return this.drag
-  }
-
   clearQueued() {
     this.jumpQueued = false
     this.pressQueued = false
-    this.dragX = 0
-    this.dragY = 0
   }
 
   private down = (e: PointerEvent) => {
@@ -122,10 +99,6 @@ export class Input {
       this.downAt = performance.now()
       this.downX = e.clientX
       this.downY = e.clientY
-      this.lastX = e.clientX
-      this.lastY = e.clientY
-      this.dragX = 0
-      this.dragY = 0
       this.moved = false
     } else {
       this.extra.add(e.pointerId)
@@ -142,15 +115,7 @@ export class Input {
     if (e.pointerId !== this.steerId) return
     e.preventDefault()
     this.pointer = { x: e.clientX, y: e.clientY }
-    // A touch is a tap (a jump) until it travels past TAP_PX; from then on it is a swipe, counted from where it landed.
-    const wasMoved = this.moved
-    if (!wasMoved && Math.hypot(e.clientX - this.downX, e.clientY - this.downY) > TAP_PX) this.moved = true
-    if (this.moved) {
-      this.dragX += e.clientX - (wasMoved ? this.lastX : this.downX)
-      this.dragY += e.clientY - (wasMoved ? this.lastY : this.downY)
-    }
-    this.lastX = e.clientX
-    this.lastY = e.clientY
+    if (Math.hypot(e.clientX - this.downX, e.clientY - this.downY) > TAP_PX) this.moved = true
   }
 
   private up = (e: PointerEvent) => {
@@ -199,7 +164,5 @@ export class Input {
     this.steerId = null
     this.extra.clear()
     this.pointer = null
-    this.dragX = 0
-    this.dragY = 0
   }
 }
